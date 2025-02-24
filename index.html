@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Real-time Nutrition Scanner</title>
+    <!-- Three.js for 3D rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+    <!-- QuaggaJS to detect barcodes -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <!-- TensorFlow.js for image recognition -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0"></script>
+    <!-- Add MobileNet for image classification -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0"></script>
+
+    <style>
+      body, html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: 'Arial', sans-serif;
+      }
+      #status {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        background: rgba(0,0,0,0.6);
+        color: #fff;
+        font-size: 1em;
+        text-align: center;
+        z-index: 100;
+        padding: 0.5em;
+      }
+      #videoElement {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        z-index: 1;
+      }
+      #canvas3d {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 2;
+        pointer-events: none;
+      }
+      #recognitionCanvas {
+        display: none;
+      }
+      #quaggaContainer {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 5;
+      }
+      .button-container {
+        position: absolute;
+        bottom: 20px;
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        z-index: 20;
+        gap: 20px;
+      }
+      .control-button {
+        background: rgba(255,255,255,0.8);
+        color: #000;
+        border: none;
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        font-size: 24px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      }
+      #scanMode {
+        position: absolute;
+        top: 50px;
+        width: 100%;
+        text-align: center;
+        z-index: 11;
+      }
+      .modeBtn {
+        background: rgba(255,255,255,0.9);
+        border: none;
+        border-radius: 20px;
+        padding: 8px 18px;
+        margin: 0 5px;
+        font-size: 14px;
+        font-weight: bold;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        transition: all 0.2s ease;
+      }
+      .modeBtn:active {
+        transform: scale(0.95);
+      }
+      .active {
+        background: #4285f4;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status">Initializing scanner...</div>
+    <div id="scanMode">
+      <button id="barcodeMode" class="modeBtn active">Barcode</button>
+      <button id="imageMode" class="modeBtn">Package Recognition</button>
+    </div>
+    
+    <!-- Video element for TensorFlow mode -->
+    <video id="videoElement" autoplay playsinline></video>
+    
+    <!-- Canvas for image recognition -->
+    <canvas id="recognitionCanvas"></canvas>
+    
+    <!-- Three.js canvas -->
+    <canvas id="canvas3d"></canvas>
+    
+    <!-- Container for QuaggaJS -->
+    <div id="quaggaContainer"></div>
+    
+    <div class="button-container">
+      <button id="switchCameraBtn" class="control-button">🔄</button>
+    </div>
+
+    <script>
+      // Global variables
+      let mobilenetModel = null;
+      let currentMode = 'barcode'; // Default mode
+      const videoElement = document.getElementById('videoElement');
+      const canvas = document.getElementById('recognitionCanvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      let isQuaggaRunning = false;
+      let frontCamera = false;
+      let currentStream = null;
+      const quaggaContainer = document.getElementById('quaggaContainer');
+      
+      // Image recognition variables
+      let isRecognizing = false;
+      let lastRecognitionTime = 0;
+      const recognitionInterval = 1000; // Milliseconds between recognition attempts
+      let recognizedItems = new Map(); // Track consistent recognitions
+      
+      // Three.js variables
+      let scene, camera, renderer;
+      let nutritionPanel;
+      let isThreeJsInitialized = false;
+      
+      // Initialize Three.js scene with modern design
+      function initThreeJs() {
+        if (isThreeJsInitialized) return;
+        
+        // Create scene
+        scene = new THREE.Scene();
+        
+        // Create camera (perspective)
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 5;
+        
+        // Create renderer
+        renderer = new THREE.WebGLRenderer({
+          canvas: document.getElementById('canvas3d'),
+          alpha: true,
+          antialias: true // Smoother edges
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000, 0); // Transparent background
+        renderer.setPixelRatio(window.devicePixelRatio); // Sharper rendering
+        
+        // Better lighting for 3D objects
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 5, 5);
+        directionalLight.castShadow = true;
+        scene.add(directionalLight);
+        
+        // Add subtle backlight
+        const backLight = new THREE.DirectionalLight(0x9090ff, 0.5);
+        backLight.position.set(-5, 5, -5);
+        scene.add(backLight);
+        
+        // Start animation loop
+        animate();
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        isThreeJsInitialized = true;
+      }
+      
+      // Animation loop
+      function animate() {
+        requestAnimationFrame(animate);
+        
+        if (nutritionPanel) {
+          // Gentle floating animation
+          nutritionPanel.position.y = 0.1 * Math.sin(Date.now() * 0.001);
+          nutritionPanel.rotation.y = Math.sin(Date.now() * 0.0005) * 0.05;
+        }
+        
+        renderer.render(scene, camera);
+      }
+      
+      // Create modern 3D nutrition panel
+      function createNutritionPanel(nutritionData) {
+        initThreeJs();
+        
+        // Remove any existing nutrition panel
+        if (nutritionPanel) {
+          scene.remove(nutritionPanel);
+        }
+        
+        // Create a group to hold all panel elements
+        nutritionPanel = new THREE.Group();
+        
+        // Create the main panel with rounded corners
+        const roundedRectShape = new THREE.Shape();
+        const width = 3.5;
+        const height = 5.5;
+        const radius = 0.2;
+        
+        roundedRectShape.moveTo(-width/2 + radius, -height/2);
+        roundedRectShape.lineTo(width/2 - radius, -height/2);
+        roundedRectShape.quadraticCurveTo(width/2, -height/2, width/2, -height/2 + radius);
+        roundedRectShape.lineTo(width/2, height/2 - radius);
+        roundedRectShape.quadraticCurveTo(width/2, height/2, width/2 - radius, height/2);
+        roundedRectShape.lineTo(-width/2 + radius, height/2);
+        roundedRectShape.quadraticCurveTo(-width/2, height/2, -width/2, height/2 - radius);
+        roundedRectShape.lineTo(-width/2, -height/2 + radius);
+        roundedRectShape.quadraticCurveTo(-width/2, -height/2, -width/2 + radius, -height/2);
+        
+        const extrudeSettings = {
+          steps: 1,
+          depth: 0.1,
+          bevelEnabled: true,
+          bevelThickness: 0.05,
+          bevelSize: 0.05,
+          bevelSegments: 3
+        };
+        
+        const panelGeometry = new THREE.ExtrudeGeometry(roundedRectShape, extrudeSettings);
+        const panelMaterial = new THREE.MeshPhongMaterial({
+          color: 0xf9f9f9,
+          transparent: true,
+          opacity: 0.95,
+          specular: 0x111111,
+          shininess: 30
+        });
+        
+        const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+        panel.rotation.x = Math.PI; // Flip to show front face
+        nutritionPanel.add(panel);
+        
+        // Function to create modern text mesh
+        function createTextMesh(text, size, color, y, isBold = false) {
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.width = 1024;
+          canvas.height = 256;
+          
+          // Fill with transparent background
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          
+          // Draw text with better typography
+          const fontWeight = isBold ? 'bold' : 'normal';
+          context.font = `${fontWeight} 32px Arial, sans-serif`;
+          context.fillStyle = color;
+          context.textAlign = 'center';
+          context.textBaseline = 'middle';
+          
+          // Add subtle text shadow for legibility
+          if (isBold) {
+            context.shadowColor = 'rgba(0,0,0,0.2)';
+            context.shadowBlur = 4;
+            context.shadowOffsetX = 1;
+            context.shadowOffsetY = 1;
+          }
+          
+          // Handle multiline text
+          const lines = text.split('\\n');
+          const lineHeight = 40;
+          const startY = canvas.height/2 - (lines.length - 1) * lineHeight/2;
+          
+          lines.forEach((line, index) => {
+            context.fillText(line, canvas.width/2, startY + index * lineHeight);
+          });
+          
+          // Create texture from canvas
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.minFilter = THREE.LinearFilter; // Better text quality
+          texture.magFilter = THREE.LinearFilter;
+          
+          // Create plane with texture
+          const geometry = new THREE.PlaneGeometry(size, size * canvas.height / canvas.width);
+          const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            side: THREE.DoubleSide
+          });
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.position.y = y;
+          mesh.position.z = -0.06; // Position in front
+          
+          return mesh;
+        }
+        
+        // Parse nutrition data and create text
+        const lines = nutritionData.split('\n');
+        let startY = 2.3; // Starting position from top
+        
+        // Add title
+        nutritionPanel.add(createTextMesh(lines[0], 3.2, '#1a73e8', startY, true));
+        startY -= 0.7;
+        
+        // Add horizontal divider
+        const dividerGeometry = new THREE.PlaneGeometry(3, 0.03);
+        const dividerMaterial = new THREE.MeshBasicMaterial({ color: 0x1a73e8 });
+        const divider = new THREE.Mesh(dividerGeometry, dividerMaterial);
+        divider.position.y = startY + 0.2;
+        divider.position.z = -0.05;
+        nutritionPanel.add(divider);
+        
+        // Add data lines with better spacing and colors
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          
+          // Format differently based on content
+          if (line.startsWith('Name:') || line.startsWith('Brand:')) {
+            // Product info in blue
+            nutritionPanel.add(createTextMesh(line, 3, '#1a73e8', startY));
+          } else if (line.includes('kcal')) {
+            // Energy in orange
+            nutritionPanel.add(createTextMesh(line, 3, '#f57c00', startY));
+          } else {
+            // Other nutritional info in dark gray
+            nutritionPanel.add(createTextMesh(line, 3, '#202124', startY));
+          }
+          
+          startY -= 0.55;
+        }
+        
+        // Add rounded corners for a more modern look
+        panel.geometry.computeVertexNormals();
+        
+        // Position the panel to the right side
+        nutritionPanel.position.x = 2; // Move to the right side
+        nutritionPanel.position.z = -4;
+        nutritionPanel.rotation.y = -0.2; // Slight angle
+        
+        // Add to scene
+        scene.add(nutritionPanel);
+      }
+
+      // Function to initialize the camera stream
+      async function initCamera(switchCamera = false) {
+        // Stop any existing streams
+        if (currentStream) {
+          currentStream.getTracks().forEach(track => track.stop());
+        }
+        
+        // Toggle camera mode if switching
+        if (switchCamera) {
+          frontCamera = !frontCamera;
+        }
+        
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { 
+              facingMode: frontCamera ? 'user' : 'environment',
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          });
+          
+          videoElement.srcObject = stream;
+          currentStream = stream;
+          
+          // Update status with which camera is active
+          document.getElementById('status').innerText = 'Using ' + 
+            (frontCamera ? 'front' : 'back') + ' camera. Ready to scan.';
+          
+          // Set canvas size to match video
+          videoElement.onloadedmetadata = () => {
+            canvas.width = videoElement.videoWidth;
+            canvas.height = videoElement.videoHeight;
+          };
+          
+          // Initialize models in the background
+          loadModels();
+          
+          // Start in current mode
+          if (currentMode === 'barcode') {
+            startBarcodeScanning();
+          } else {
+            // Make sure video is visible in image mode
+            videoElement.style.display = 'block';
+            // Start continuous recognition for image mode
+            startContinuousRecognition();
+          }
+        } catch (err) {
+          console.error('Error accessing camera:', err);
+          document.getElementById('status').innerText = 'Error accessing camera. Please check permissions.';
+        }
+      }
+
+      // Load TensorFlow.js models with better configuration
+      async function loadModels() {
+        document.getElementById('status').innerText = 'Loading recognition models...';
+        
+        try {
+          // Load MobileNet with higher confidence threshold
+          mobilenetModel = await mobilenet.load({
+            version: 2,
+            alpha: 1.0 // Higher alpha for better accuracy
+          });
+          
+          document.getElementById('status').innerText = 'Models loaded. Ready to scan.';
+        } catch (err) {
+          console.error('Error loading models:', err);
+          document.getElementById('status').innerText = 'Error loading recognition models.';
+        }
+      }
+
+      // Start continuous image recognition
+      function startContinuousRecognition() {
+        if (isRecognizing) return;
+        isRecognizing = true;
+        
+        // Clear the recognition tracking map
+        recognizedItems.clear();
+        
+        // Start the recognition loop
+        recognizeLoop();
+      }
+      
+      // Stop continuous recognition
+      function stopContinuousRecognition() {
+        isRecognizing = false;
+      }
+      
+      // Recognition loop for continuous processing
+      async function recognizeLoop() {
+        if (!isRecognizing || currentMode !== 'image') return;
+        
+        const now = Date.now();
+        if (now - lastRecognitionTime > recognitionInterval) {
+          lastRecognitionTime = now;
+          
+          // Check if video is playing and models are loaded
+          if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA && mobilenetModel) {
+            // Capture current frame
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            
+            try {
+              // Apply image preprocessing to improve recognition
+              applyImageEnhancement(ctx, canvas.width, canvas.height);
+              
+              // Perform classification
+              const classifications = await mobilenetModel.classify(canvas, 5); // Get top 5 results
+              
+              // Filter for food-related items with reasonable confidence
+              const foodItems = classifications.filter(item => 
+                item.probability > 0.3 && 
+                (isFoodRelated(item.className) || isPackagingRelated(item.className))
+              );
+              
+              if (foodItems.length > 0) {
+                const topResult = foodItems[0];
+                const itemKey = topResult.className.split(',')[0].trim();
+                
+                // Track consistent recognitions
+                if (!recognizedItems.has(itemKey)) {
+                  recognizedItems.set(itemKey, { count: 1, confidence: topResult.probability });
+                } else {
+                  const item = recognizedItems.get(itemKey);
+                  item.count++;
+                  item.confidence = Math.max(item.confidence, topResult.probability);
+                  recognizedItems.set(itemKey, item);
+                  
+                  // If we've seen this item consistently, search for it
+                  if (item.count >= 3 && item.confidence > 0.4) {
+                    document.getElementById('status').innerText = 
+                      `Recognized: ${itemKey} (${Math.round(item.confidence * 100)}% confidence)`;
+                    
+                    // Search for the item's nutrition data
+                    searchFoodItem(itemKey);
+                    
+                    // Reset the tracking map after a successful recognition
+                    recognizedItems.clear();
+                    
+                    // Pause recognition briefly after successful identification
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('Error during continuous recognition:', err);
+            }
+          }
+        }
+        
+        // Continue the loop
+        requestAnimationFrame(recognizeLoop);
+      }
+      
+      // Check if a class name is related to food
+      function isFoodRelated(className) {
+        const foodKeywords = [
+          'food', 'snack', 'chip', 'crisp', 'fruit', 'vegetable', 'meat', 'drink', 'beverage',
+          'chocolate', 'candy', 'sweet', 'cookie', 'cracker', 'bread', 'cereal', 'yogurt', 
+          'milk', 'juice', 'soda', 'water', 'coffee', 'tea', 'sandwich', 'burger', 'pizza',
+          'pasta', 'rice', 'bean', 'nut', 'cake', 'pie', 'ice cream', 'dessert', 'soup',
+          'salad', 'sauce', 'oil', 'vinegar', 'sugar', 'salt', 'pepper', 'spice', 'herb'
+        ];
+        
+        return foodKeywords.some(keyword => 
+          className.toLowerCase().includes(keyword)
+        );
+      }
+      
+      // Check if a class name is related to packaging
+      function isPackagingRelated(className) {
+        const packagingKeywords = [
+          'package', 'box', 'bag', 'bottle', 'can', 'container', 'wrapper', 'packet',
+          'pouch', 'sachet', 'carton', 'jar', 'tin', 'tube', 'tray', 'plastic', 'cardboard'
+        ];
+        
+        return packagingKeywords.some(keyword => 
+          className.toLowerCase().includes(keyword)
+        );
+      }
+      
+      // Apply image enhancements to improve recognition
+      function applyImageEnhancement(ctx, width, height) {
+        // Get image data
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        
+        // Simple contrast and brightness adjustment
+        const contrast = 1.2; // Increase contrast
+        const brightness = 10; // Slight brightness boost
+        
+        for (let i = 0; i < data.length; i += 4) {
+          // Apply contrast and brightness
+          data[i] = Math.min(255, Math.max(0, (data[i] - 128) * contrast + 128 + brightness)); // Red
+          data[i+1] = Math.min(255, Math.max(0, (data[i+1] - 128) * contrast + 128 + brightness)); // Green
+          data[i+2] = Math.min(255, Math.max(0, (data[i+2] - 128) * contrast + 128 + brightness)); // Blue
+        }
+        
+        // Put the modified pixels back
+        ctx.putImageData(imageData, 0, 0);
+      }
+
+      // Start barcode scanning using QuaggaJS
+      function startBarcodeScanning() {
+        if (isQuaggaRunning) return;
+        
+        // Hide the video element as Quagga will create its own
+        videoElement.style.display = 'none';
+        
+        // Clear the QuaggaJS container before reinitializing
+        quaggaContainer.innerHTML = '';
+        quaggaContainer.style.display = 'block';
+        
+        Quagga.init({
+          inputStream: {
+            name: "Live",
+            type: "LiveStream",
+            target: quaggaContainer,
+            constraints: {
+              facingMode: frontCamera ? "user" : "environment",
+              width: { min: 640 },
+              height: { min: 480 }
+            }
+          },
+          locator: {
+            patchSize: "medium", // Faster performance
+            halfSample: true
+          },
+          numOfWorkers: navigator.hardwareConcurrency || 4,
+          decoder: {
+            readers: ["ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader"],
+            debug: {
+              drawBoundingBox: true,
+              showPattern: true
+            }
+          },
+          locate: true
+        }, function(err) {
+          if (err) {
+            console.error(err);
+            document.getElementById("status").innerText = "Error initializing barcode scanner.";
+            return;
+          }
+          
+          console.log("QuaggaJS initialized.");
+          
+          // Add willReadFrequently attribute to all canvases
+          setTimeout(() => {
+            const canvases = quaggaContainer.querySelectorAll('canvas');
+            canvases.forEach(canvas => {
+              const ctx = canvas.getContext('2d');
+              if (ctx) ctx.willReadFrequently = true;
+            });
+            
+            // Make sure video is visible
+            const quaggaVideo = quaggaContainer.querySelector('video');
+            if (quaggaVideo) {
+              quaggaVideo.style.width = '100%';
+              quaggaVideo.style.height = '100%';
+              quaggaVideo.style.objectFit = 'cover';
+            }
+          }, 500);
+          
+          Quagga.start();
+          isQuaggaRunning = true;
+          document.getElementById("status").innerText = "Scanning for product barcode...";
+        });
+      }
+
+      // Stop barcode scanning
+      function stopBarcodeScanning() {
+        if (isQuaggaRunning) {
+          Quagga.stop();
+          isQuaggaRunning = false;
+          
+          // Clear the container
+          quaggaContainer.style.display = 'none';
+          quaggaContainer.innerHTML = '';
+          
+          // Show our video element again
+          videoElement.style.display = 'block';
+        }
+      }
+
+      // Search for food item using the Open Food Facts API
+      function searchFoodItem(itemName) {
+        // Clean up the item name for search
+        const searchTerm = itemName.split(',')[0].trim().toLowerCase();
+        
+        document.getElementById('status').innerText = `Searching for: ${searchTerm}...`;
+        
+        // Use the Open Food Facts search API
+        fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(searchTerm)}&search_simple=1&action=process&json=1`)
+          .then(response => response.json())
+          .then(data => {
+            if (data.products && data.products.length > 0) {
+              const product = data.products[0]; // Use the first result
+              
+              // Display product info
+              const nutriments = product.nutriments || {};
+              
+              // Format nutrition data
+              let labelText = "Nutrition Facts\n";
+              labelText += `Name: ${product.product_name || "N/A"}\n`;
+              labelText += `Brand: ${product.brands || "N/A"}\n`;
+              
+              // Format nutrition values with consistent units
+              const energy = nutriments["energy-kcal"] ? 
+                `${Math.round(nutriments["energy-kcal"])} kcal` : "N/A";
+              const fat = nutriments.fat ? 
+                `${parseFloat(nutriments.fat).toFixed(1)}g` : "N/A";
+              const sugars = nutriments.sugars ? 
+                `${parseFloat(nutriments.sugars).toFixed(1)}g` : "N/A";
+              const proteins = nutriments.proteins ? 
+                `${parseFloat(nutriments.proteins).toFixed(1)}g` : "N/A";
+              
+              labelText += `Energy: ${energy}\n`;
+              labelText += `Fat: ${fat}\n`;
+              labelText += `Sugars: ${sugars}\n`;
+              labelText += `Proteins: ${proteins}\n`;
+              
+              document.getElementById('status').innerText = "Found: " + (product.product_name || "Unknown");
+              
+              // Create 3D nutrition panel
+              createNutritionPanel(labelText);
+            } else {
+              document.getElementById('status').innerText = `No product found for: ${searchTerm}`;
+            }
+          })
+          .catch(err => {
+            console.error("Error searching product:", err);
+            document.getElementById('status').innerText = "Error searching for product data.";
+          });
+      }
+
+      // Handle barcode detection
+      Quagga.onDetected(function(result) {
+        const code = result.codeResult.code;
+        console.log("Barcode detected:", code);
+        document.getElementById("status").innerText = "Barcode detected: " + code;
+        
+        // Temporarily stop scanning
+        Quagga.pause();
+
+        // Query the Open Food Facts API for product details
+        fetch("https://world.openfoodfacts.org/api/v0/product/" + code + ".json")
+          .then(response => response.json())
+          .then(data => {
+            if(data.status === 1) {
+              const product = data.product;
+              // Format nutrition data
+              const nutriments = product.nutriments || {};
+              
+              // Format nutrition data
+              let labelText = "Nutrition Facts\n";
+              labelText += `Name: ${product.product_name || "N/A"}\n`;
+              labelText += `Brand: ${product.brands || "N/A"}\n`;
+              
+              // Format nutrition values with consistent units
+              const energy = nutriments["energy-kcal"] ? 
+                `${Math.round(nutriments["energy-kcal"])} kcal` : "N/A";
+              const fat = nutriments.fat ? 
+                `${parseFloat(nutriments.fat).toFixed(1)}g` : "N/A";
+              const sugars = nutriments.sugars ? 
+                `${parseFloat(nutriments.sugars).toFixed(1)}g` : "N/A";
+              const proteins = nutriments.proteins ? 
+                `${parseFloat(nutriments.proteins).toFixed(1)}g` : "N/A";
+              
+              labelText += `Energy: ${energy}\n`;
+              labelText += `Fat: ${fat}\n`;
+              labelText += `Sugars: ${sugars}\n`;
+              labelText += `Proteins: ${proteins}\n`;
+              
+              console.log("Product data:", product);
+              document.getElementById("status").innerText = "Product: " + (product.product_name || "Unknown");
+          
+              // Create 3D nutrition panel
+              createNutritionPanel(labelText);
+            } else {
+              document.getElementById("status").innerText = "Product not found for barcode: " + code;
+            }
+            
+            // Resume scanning after a short delay
+            setTimeout(() => Quagga.start(), 3000);
+          })
+          .catch(err => {
+            console.error("Error fetching product data:", err);
+            document.getElementById("status").innerText = "Error fetching nutrition data.";
+            setTimeout(() => Quagga.start(), 3000);
+          });
+      });
+
+      // Set up event listeners
+      document.getElementById('barcodeMode').addEventListener('click', function() {
+        if (currentMode === 'barcode') return;
+        
+        currentMode = 'barcode';
+        this.classList.add('active');
+        document.getElementById('imageMode').classList.remove('active');
+        
+        // Stop continuous recognition if running
+        stopContinuousRecognition();
+        
+        // Start barcode scanning
+        startBarcodeScanning();
+      });
+
+      document.getElementById('imageMode').addEventListener('click', function() {
+        if (currentMode === 'image') return;
+        
+        currentMode = 'image';
+        this.classList.add('active');
+        document.getElementById('barcodeMode').classList.remove('active');
+        
+        // Stop barcode scanning
+        stopBarcodeScanning();
+        
+        // Start continuous recognition
+        startContinuousRecognition();
+      });
+      
+      document.getElementById('switchCameraBtn').addEventListener('click', function() {
+        // Stop current scanning if active
+        if (isQuaggaRunning) {
+          stopBarcodeScanning();
+        }
+        
+        // Stop continuous recognition if running
+        if (isRecognizing) {
+          stopContinuousRecognition();
+        }
+        
+        // Initialize with camera switch
+        initCamera(true);
+      });
+
+      // Initialize the app
+      window.addEventListener('load', () => {
+        // Initialize camera
+        initCamera();
+        
+        // Initialize Three.js
+        initThreeJs();
+      });
+    </script>
+  </body>
+</html>
