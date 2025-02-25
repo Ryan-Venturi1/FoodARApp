@@ -359,235 +359,255 @@
       
       // Initialize Three.js scene with modern design
       function initThreeJs() {
-        if (isThreeJsInitialized) return;
+        if (isThreeJsInitialized) return true;
         
-        // Create scene
-        scene = new THREE.Scene();
-        
-        // Create camera (perspective)
-        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 5;
-        
-        // Create renderer
-        renderer = new THREE.WebGLRenderer({
-          canvas: document.getElementById('canvas3d'),
-          alpha: true,
-          antialias: true // Smoother edges
-        });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setClearColor(0x000000, 0); // Transparent background
-        renderer.setPixelRatio(window.devicePixelRatio); // Sharper rendering
-        
-        // Better lighting for 3D objects
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        scene.add(ambientLight);
-        
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-        directionalLight.position.set(5, 5, 5);
-        directionalLight.castShadow = true;
-        scene.add(directionalLight);
-        
-        // Add subtle backlight
-        const backLight = new THREE.DirectionalLight(0x9090ff, 0.5);
-        backLight.position.set(-5, 5, -5);
-        scene.add(backLight);
-        
-        // Start animation loop
-        animate();
-        
-        // Handle window resize
-        window.addEventListener('resize', () => {
-          camera.aspect = window.innerWidth / window.innerHeight;
-          camera.updateProjectionMatrix();
+        try {
+          // Create scene
+          scene = new THREE.Scene();
+          
+          // Create camera (perspective)
+          camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+          camera.position.z = 5;
+          
+          // Create renderer
+          renderer = new THREE.WebGLRenderer({
+            canvas: document.getElementById('canvas3d'),
+            alpha: true,
+            antialias: true // Smoother edges
+          });
           renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-        
-        isThreeJsInitialized = true;
+          renderer.setClearColor(0x000000, 0); // Transparent background
+          renderer.setPixelRatio(window.devicePixelRatio); // Sharper rendering
+          
+          // Better lighting for 3D objects
+          const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+          scene.add(ambientLight);
+          
+          const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+          directionalLight.position.set(5, 5, 5);
+          directionalLight.castShadow = true;
+          scene.add(directionalLight);
+          
+          // Add subtle backlight
+          const backLight = new THREE.DirectionalLight(0x9090ff, 0.5);
+          backLight.position.set(-5, 5, -5);
+          scene.add(backLight);
+          
+          // Start animation loop
+          animate();
+          
+          // Handle window resize
+          window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+          });
+          
+          isThreeJsInitialized = true;
+          console.log("Three.js initialized successfully");
+          return true;
+        } catch (error) {
+          console.error("Error initializing Three.js:", error);
+          document.getElementById('status').innerText = "Error creating 3D display";
+          return false;
+        }
       }
       
       // Animation loop
       function animate() {
-        requestAnimationFrame(animate);
-        
-        if (nutritionPanel) {
-          // Gentle floating animation
-          nutritionPanel.position.y = 0.1 * Math.sin(Date.now() * 0.001);
-          nutritionPanel.rotation.y = Math.sin(Date.now() * 0.0005) * 0.05;
+        try {
+          requestAnimationFrame(animate);
+          
+          if (nutritionPanel) {
+            // Gentle floating animation
+            nutritionPanel.position.y = 0.1 * Math.sin(Date.now() * 0.001);
+          }
+          
+          renderer.render(scene, camera);
+        } catch (error) {
+          console.error("Error in animation loop:", error);
         }
-        
-        renderer.render(scene, camera);
       }
       
       // Create modern 3D nutrition panel
       function createNutritionPanel(nutritionData) {
-        initThreeJs();
-        
         console.log("Creating nutrition panel with data:", nutritionData);
+        
+        if (!initThreeJs()) {
+          console.error("Failed to initialize Three.js, cannot create nutrition panel");
+          return;
+        }
         
         // Remove any existing nutrition panel
         if (nutritionPanel) {
           scene.remove(nutritionPanel);
         }
         
-        // Create a group to hold all panel elements
-        nutritionPanel = new THREE.Group();
-        
-        // Create the main panel with rounded corners
-        const roundedRectShape = new THREE.Shape();
-        const width = 3.5;
-        const height = 5.5;
-        const radius = 0.2;
-        
-        roundedRectShape.moveTo(-width/2 + radius, -height/2);
-        roundedRectShape.lineTo(width/2 - radius, -height/2);
-        roundedRectShape.quadraticCurveTo(width/2, -height/2, width/2, -height/2 + radius);
-        roundedRectShape.lineTo(width/2, height/2 - radius);
-        roundedRectShape.quadraticCurveTo(width/2, height/2, width/2 - radius, height/2);
-        roundedRectShape.lineTo(-width/2 + radius, height/2);
-        roundedRectShape.quadraticCurveTo(-width/2, height/2, -width/2, height/2 - radius);
-        roundedRectShape.lineTo(-width/2, -height/2 + radius);
-        roundedRectShape.quadraticCurveTo(-width/2, -height/2, -width/2 + radius, -height/2);
-        
-        const extrudeSettings = {
-          steps: 1,
-          depth: 0.1,
-          bevelEnabled: true,
-          bevelThickness: 0.05,
-          bevelSize: 0.05,
-          bevelSegments: 3
-        };
-        
-        const panelGeometry = new THREE.ExtrudeGeometry(roundedRectShape, extrudeSettings);
-        const panelMaterial = new THREE.MeshPhongMaterial({
-          color: 0xf9f9f9,
-          transparent: true,
-          opacity: 0.95,
-          specular: 0x111111,
-          shininess: 30
-        });
-        
-        const panel = new THREE.Mesh(panelGeometry, panelMaterial);
-        panel.rotation.x = Math.PI; // Flip to show front face
-        nutritionPanel.add(panel);
-        
-        // Function to create modern text mesh
-        function createTextMesh(text, size, color, y, isBold = false) {
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          canvas.width = 1024;
-          canvas.height = 256;
+        try {
+          // Create a group to hold all panel elements
+          nutritionPanel = new THREE.Group();
           
-          // Fill with transparent background
-          context.clearRect(0, 0, canvas.width, canvas.height);
+          // Create the main panel with rounded corners
+          const roundedRectShape = new THREE.Shape();
+          const width = 3.5;
+          const height = 5.5;
+          const radius = 0.2;
           
-          // Draw text with better typography
-          const fontWeight = isBold ? 'bold' : 'normal';
-          context.font = `${fontWeight} 32px Arial, sans-serif`;
-          context.fillStyle = color;
-          context.textAlign = 'center';
-          context.textBaseline = 'middle';
+          roundedRectShape.moveTo(-width/2 + radius, -height/2);
+          roundedRectShape.lineTo(width/2 - radius, -height/2);
+          roundedRectShape.quadraticCurveTo(width/2, -height/2, width/2, -height/2 + radius);
+          roundedRectShape.lineTo(width/2, height/2 - radius);
+          roundedRectShape.quadraticCurveTo(width/2, height/2, width/2 - radius, height/2);
+          roundedRectShape.lineTo(-width/2 + radius, height/2);
+          roundedRectShape.quadraticCurveTo(-width/2, height/2, -width/2, height/2 - radius);
+          roundedRectShape.lineTo(-width/2, -height/2 + radius);
+          roundedRectShape.quadraticCurveTo(-width/2, -height/2, -width/2 + radius, -height/2);
           
-          // Add subtle text shadow for legibility
-          if (isBold) {
-            context.shadowColor = 'rgba(0,0,0,0.2)';
-            context.shadowBlur = 4;
-            context.shadowOffsetX = 1;
-            context.shadowOffsetY = 1;
-          }
+          const extrudeSettings = {
+            steps: 1,
+            depth: 0.1,
+            bevelEnabled: true,
+            bevelThickness: 0.05,
+            bevelSize: 0.05,
+            bevelSegments: 3
+          };
           
-          // Handle multiline text
-          const lines = text.split('\\n');
-          const lineHeight = 40;
-          const startY = canvas.height/2 - (lines.length - 1) * lineHeight/2;
-          
-          lines.forEach((line, index) => {
-            context.fillText(line, canvas.width/2, startY + index * lineHeight);
-          });
-          
-          // Create texture from canvas
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.minFilter = THREE.LinearFilter; // Better text quality
-          texture.magFilter = THREE.LinearFilter;
-          
-          // Create plane with texture
-          const geometry = new THREE.PlaneGeometry(size, size * canvas.height / canvas.width);
-          const material = new THREE.MeshBasicMaterial({
-            map: texture,
+          const panelGeometry = new THREE.ExtrudeGeometry(roundedRectShape, extrudeSettings);
+          const panelMaterial = new THREE.MeshPhongMaterial({
+            color: 0xf9f9f9,
             transparent: true,
-            side: THREE.DoubleSide
+            opacity: 0.95,
+            specular: 0x111111,
+            shininess: 30
           });
-          const mesh = new THREE.Mesh(geometry, material);
-          mesh.position.y = y;
-          mesh.position.z = -0.06; // Position in front
           
-          return mesh;
-        }
-        
-        // Parse nutrition data and create text
-        const lines = nutritionData.split('\n');
-        let startY = 2.3; // Starting position from top
-        
-        // Add title
-        nutritionPanel.add(createTextMesh(lines[0], 3.2, '#1a73e8', startY, true));
-        startY -= 0.7;
-        
-        // Add horizontal divider
-        const dividerGeometry = new THREE.PlaneGeometry(3, 0.03);
-        const dividerMaterial = new THREE.MeshBasicMaterial({ color: 0x1a73e8 });
-        const divider = new THREE.Mesh(dividerGeometry, dividerMaterial);
-        divider.position.y = startY + 0.2;
-        divider.position.z = -0.05;
-        nutritionPanel.add(divider);
-        
-        // Add data lines with better spacing and colors
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i];
+          const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+          panel.rotation.x = Math.PI; // Flip to show front face
+          nutritionPanel.add(panel);
           
-          // Format differently based on content
-          if (line.startsWith('Name:') || line.startsWith('Brand:')) {
-            // Product info in blue
-            nutritionPanel.add(createTextMesh(line, 3, '#1a73e8', startY));
-          } else if (line.includes('kcal')) {
-            // Energy in orange
-            nutritionPanel.add(createTextMesh(line, 3, '#f57c00', startY));
-          } else {
-            // Other nutritional info in dark gray
-            nutritionPanel.add(createTextMesh(line, 3, '#202124', startY));
+          // Function to create modern text mesh
+          function createTextMesh(text, size, color, y, isBold = false) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 1024;
+            canvas.height = 256;
+            
+            // Fill with transparent background
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw text with better typography
+            const fontWeight = isBold ? 'bold' : 'normal';
+            context.font = `${fontWeight} 32px Arial, sans-serif`;
+            context.fillStyle = color;
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            
+            // Add subtle text shadow for legibility
+            if (isBold) {
+              context.shadowColor = 'rgba(0,0,0,0.2)';
+              context.shadowBlur = 4;
+              context.shadowOffsetX = 1;
+              context.shadowOffsetY = 1;
+            }
+            
+            // Handle multiline text
+            const lines = text.split('\\n');
+            const lineHeight = 40;
+            const startY = canvas.height/2 - (lines.length - 1) * lineHeight/2;
+            
+            lines.forEach((line, index) => {
+              context.fillText(line, canvas.width/2, startY + index * lineHeight);
+            });
+            
+            // Create texture from canvas
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter; // Better text quality
+            texture.magFilter = THREE.LinearFilter;
+            
+            // Create plane with texture
+            const geometry = new THREE.PlaneGeometry(size, size * canvas.height / canvas.width);
+            const material = new THREE.MeshBasicMaterial({
+              map: texture,
+              transparent: true,
+              side: THREE.DoubleSide
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.y = y;
+            mesh.position.z = -0.06; // Position in front
+            
+            return mesh;
           }
           
-          startY -= 0.55;
-        }
-        
-        // Add rounded corners for a more modern look
-        panel.geometry.computeVertexNormals();
-        
-        // Position the panel to the right side
-        nutritionPanel.position.x = 2; // Move to the right side
-        nutritionPanel.position.z = -4;
-        nutritionPanel.rotation.y = -0.2; // Slight angle
-        
-        // Add to scene with an entry animation
-        nutritionPanel.scale.set(0.1, 0.1, 0.1);
-        scene.add(nutritionPanel);
-        
-        // Panel entry animation
-        const startTime = Date.now();
-        const animatePanelEntry = function() {
-          const elapsed = Date.now() - startTime;
-          const progress = Math.min(elapsed / 500, 1); // 500ms animation
+          // Parse nutrition data and create text
+          const lines = nutritionData.split('\n');
+          let startY = 2.3; // Starting position from top
           
-          nutritionPanel.scale.set(
-            0.1 + 0.9 * progress,
-            0.1 + 0.9 * progress,
-            0.1 + 0.9 * progress
-          );
+          // Add title
+          nutritionPanel.add(createTextMesh(lines[0], 3.2, '#1a73e8', startY, true));
+          startY -= 0.7;
           
-          if (progress < 1) {
-            requestAnimationFrame(animatePanelEntry);
+          // Add horizontal divider
+          const dividerGeometry = new THREE.PlaneGeometry(3, 0.03);
+          const dividerMaterial = new THREE.MeshBasicMaterial({ color: 0x1a73e8 });
+          const divider = new THREE.Mesh(dividerGeometry, dividerMaterial);
+          divider.position.y = startY + 0.2;
+          divider.position.z = -0.05;
+          nutritionPanel.add(divider);
+          
+          // Add data lines with better spacing and colors
+          for (let i = 1; i < lines.length; i++) {
+            const line = lines[i];
+            
+            // Format differently based on content
+            if (line.startsWith('Name:') || line.startsWith('Brand:')) {
+              // Product info in blue
+              nutritionPanel.add(createTextMesh(line, 3, '#1a73e8', startY));
+            } else if (line.includes('kcal')) {
+              // Energy in orange
+              nutritionPanel.add(createTextMesh(line, 3, '#f57c00', startY));
+            } else {
+              // Other nutritional info in dark gray
+              nutritionPanel.add(createTextMesh(line, 3, '#202124', startY));
+            }
+            
+            startY -= 0.55;
           }
-        };
-        
-        animatePanelEntry();
+          
+          // Add rounded corners for a more modern look
+          panel.geometry.computeVertexNormals();
+          
+          // Position the panel in front of the camera rather than to the side
+          nutritionPanel.position.x = 0; 
+          nutritionPanel.position.z = -3.5;
+          nutritionPanel.rotation.y = 0; // Straight on
+          
+          // Add to scene with an entry animation
+          nutritionPanel.scale.set(0.1, 0.1, 0.1);
+          scene.add(nutritionPanel);
+          console.log("Nutrition panel added to scene");
+          
+          // Panel entry animation
+          const startTime = Date.now();
+          const animatePanelEntry = function() {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / 500, 1); // 500ms animation
+            
+            nutritionPanel.scale.set(
+              0.1 + 0.9 * progress,
+              0.1 + 0.9 * progress,
+              0.1 + 0.9 * progress
+            );
+            
+            if (progress < 1) {
+              requestAnimationFrame(animatePanelEntry);
+            }
+          };
+          
+          animatePanelEntry();
+        } catch (error) {
+          console.error("Error creating nutrition panel:", error);
+          document.getElementById('status').innerText = "Error displaying nutrition information";
+        }
       }
 
       // Apply image enhancements to improve recognition
@@ -1000,42 +1020,52 @@
       
       // Display product information from API response
       function displayProductInfo(product) {
-        // Format nutrition data
-        const nutriments = product.nutriments || {};
-              
-        // Format nutrition data
-        let labelText = "Nutrition Facts\n";
-        labelText += `Name: ${product.product_name || "N/A"}\n`;
-        labelText += `Brand: ${product.brands || "N/A"}\n`;
-        
-        // Format nutrition values with consistent units
-        const energy = nutriments["energy-kcal"] ? 
-          `${Math.round(nutriments["energy-kcal"])} kcal` : 
-          (nutriments["energy"] ? `${Math.round(nutriments["energy"] / 4.184)} kcal` : "N/A");
-        
-        const fat = nutriments.fat ? 
-          `${parseFloat(nutriments.fat).toFixed(1)}g` : "N/A";
-        const sugars = nutriments.sugars ? 
-          `${parseFloat(nutriments.sugars).toFixed(1)}g` : "N/A";
-        const proteins = nutriments.proteins ? 
-          `${parseFloat(nutriments.proteins).toFixed(1)}g` : "N/A";
-        
-        labelText += `Energy: ${energy}\n`;
-        labelText += `Fat: ${fat}\n`;
-        labelText += `Sugars: ${sugars}\n`;
-        labelText += `Proteins: ${proteins}\n`;
-        
-        // Add salt or sodium if available
-        if (nutriments.salt) {
-          labelText += `Salt: ${parseFloat(nutriments.salt).toFixed(1)}g\n`;
-        } else if (nutriments.sodium) {
-          labelText += `Sodium: ${parseFloat(nutriments.sodium).toFixed(1)}g\n`;
+        try {
+          console.log("Displaying product info:", product);
+          
+          // Format nutrition data
+          const nutriments = product.nutriments || {};
+                
+          // Format nutrition data
+          let labelText = "Nutrition Facts\n";
+          labelText += `Name: ${product.product_name || "N/A"}\n`;
+          labelText += `Brand: ${product.brands || "N/A"}\n`;
+          
+          // Format nutrition values with consistent units
+          const energy = nutriments["energy-kcal"] ? 
+            `${Math.round(nutriments["energy-kcal"])} kcal` : 
+            (nutriments["energy"] ? `${Math.round(nutriments["energy"] / 4.184)} kcal` : "N/A");
+          
+          const fat = nutriments.fat ? 
+            `${parseFloat(nutriments.fat).toFixed(1)}g` : "N/A";
+          const sugars = nutriments.sugars ? 
+            `${parseFloat(nutriments.sugars).toFixed(1)}g` : "N/A";
+          const proteins = nutriments.proteins ? 
+            `${parseFloat(nutriments.proteins).toFixed(1)}g` : "N/A";
+          
+          labelText += `Energy: ${energy}\n`;
+          labelText += `Fat: ${fat}\n`;
+          labelText += `Sugars: ${sugars}\n`;
+          labelText += `Proteins: ${proteins}\n`;
+          
+          // Add salt or sodium if available
+          if (nutriments.salt) {
+            labelText += `Salt: ${parseFloat(nutriments.salt).toFixed(1)}g\n`;
+          } else if (nutriments.sodium) {
+            labelText += `Sodium: ${parseFloat(nutriments.sodium).toFixed(1)}g\n`;
+          }
+          
+          document.getElementById('status').innerText = "Found: " + (product.product_name || "Unknown");
+          
+          // Create 3D nutrition panel
+          createNutritionPanel(labelText);
+        } catch (error) {
+          console.error("Error displaying product info:", error);
+          
+          // Fallback to generic panel
+          const productName = product && product.product_name ? product.product_name : "Unknown Product";
+          createGenericNutritionPanel(productName);
         }
-        
-        document.getElementById('status').innerText = "Found: " + (product.product_name || "Unknown");
-        
-        // Create 3D nutrition panel
-        createNutritionPanel(labelText);
       }
       
       // Create generic nutrition panel when exact product isn't found
