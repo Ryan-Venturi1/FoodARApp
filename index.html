@@ -8,11 +8,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.147.0/three.min.js"></script>
     <!-- QuaggaJS to detect barcodes -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-    <!-- TensorFlow.js for image recognition -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/3.18.0/tf.min.js"></script>
-    <!-- Add MobileNet for image classification -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
- 
+    
     <link rel="stylesheet" href="style.css">
     
     <!-- Add Font Awesome for icons -->
@@ -22,16 +18,12 @@
     <div id="status">Initializing scanner...</div>
     <div id="scanMode">
       <button id="barcodeMode" class="modeBtn active">Barcode</button>
-      <!-- Visual mode button will be added dynamically -->
     </div>
     
-    <!-- Video element for TensorFlow mode -->
+    <!-- Video element for camera feed -->
     <video id="videoElement" autoplay playsinline></video>
     
-    <!-- Canvas for image recognition -->
-    <canvas id="recognitionCanvas"></canvas>
-    
-    <!-- Three.js canvas -->
+    <!-- Canvas for Three.js AR -->
     <canvas id="canvas3d"></canvas>
     
     <!-- Container for QuaggaJS -->
@@ -50,9 +42,6 @@
       </div>
     </div>
     
-    <!-- Detection box for package recognition -->
-    <div class="detection-box" id="detectionBox"></div>
-    
     <!-- Loading indicator -->
     <div class="loading-indicator" id="loadingIndicator">
       <div class="spinner"></div>
@@ -68,198 +57,21 @@
     <!-- Button container for controls -->
     <div class="button-container">
       <button id="switchCameraBtn" class="control-button"><i class="fas fa-sync-alt"></i></button>
-      <!-- Voice control and share buttons will be added dynamically -->
+      <!-- Clear button will be added dynamically -->
     </div>
     
-    <!-- Info button for help -->
-    <button id="infoButton" class="info-button">
-      <i class="fas fa-info-circle"></i>
-    </button>
-    
-    <!-- Help overlay -->
-    <div id="helpOverlay" class="help-overlay">
-      <div class="help-content">
-        <h2>How to Use</h2>
-        <ul>
-          <li><strong>Barcode Mode:</strong> Scan product barcodes</li>
-          <li><strong>Visual Mode:</strong> Point camera at food items</li>
-          <li><strong>Tap Screen:</strong> Analyze what you see</li>
-          <li><strong>Voice Command:</strong> Say "scan", "visual", or "clear"</li>
-          <li><strong>Share Results:</strong> Tap the share button</li>
-        </ul>
-        <h3>Gestures:</h3>
-        <ul>
-          <li>Tap panels to move</li>
-          <li>Drag to reposition</li>
-        </ul>
-        <button id="closeHelpBtn">Got it!</button>
-      </div>
-    </div>
-    
-    <!-- Additional styles for welcome screen and help -->
-    <style>
-      .welcome-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.9);
-        z-index: 1000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        opacity: 0;
-        transition: opacity 0.5s ease;
-      }
-      
-      .welcome-overlay.active {
-        opacity: 1;
-      }
-      
-      .welcome-content {
-        max-width: 80%;
-        background: white;
-        border-radius: 15px;
-        padding: 30px;
-        text-align: center;
-        transform: scale(0.8);
-        transition: transform 0.5s ease;
-      }
-      
-      .welcome-overlay.active .welcome-content {
-        transform: scale(1);
-      }
-      
-      .welcome-features {
-        display: flex;
-        justify-content: space-around;
-        margin: 20px 0;
-      }
-      
-      .feature {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-      }
-      
-      .feature-icon {
-        font-size: 28px;
-        margin-bottom: 10px;
-      }
-      
-      #startScanningBtn {
-        background: #4285f4;
-        color: white;
-        border: none;
-        padding: 12px 30px;
-        border-radius: 30px;
-        font-size: 16px;
-        font-weight: bold;
-        margin-top: 20px;
-        cursor: pointer;
-      }
-      
-      .voice-btn.listening {
-        animation: pulse 1.5s infinite;
-      }
-      
-      .info-button {
-        position: absolute;
-        top: 60px;
-        left: 15px;
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.9);
-        border: none;
-        font-size: 20px;
-        z-index: 50;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-      }
-      
-      .help-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.8);
-        z-index: 1000;
-        display: none;
-        justify-content: center;
-        align-items: center;
-      }
-      
-      .help-content {
-        max-width: 80%;
-        background: white;
-        border-radius: 15px;
-        padding: 20px;
-      }
-      
-      .help-content h2 {
-        color: #4285f4;
-        margin-top: 0;
-      }
-      
-      .help-content ul {
-        text-align: left;
-        padding-left: 20px;
-      }
-      
-      .help-content li {
-        margin-bottom: 10px;
-      }
-      
-      #closeHelpBtn {
-        background: #4285f4;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 20px;
-        font-weight: bold;
-        margin-top: 15px;
-        cursor: pointer;
-      }
-      
-      .nutrition-panel.comparison-mode {
-        position: fixed;
-        transition: all 0.5s ease;
-      }
-      
-      @media (max-width: 600px) {
-        .welcome-features {
-          flex-direction: column;
-          gap: 15px;
-        }
-        
-        .feature {
-          flex-direction: row;
-          gap: 15px;
-        }
-      }
-    </style>
-    
+    <!-- Add WebXR AR script -->
     <script>
-      // Help button functionality
-      document.addEventListener('DOMContentLoaded', function() {
-        const infoButton = document.getElementById('infoButton');
-        const helpOverlay = document.getElementById('helpOverlay');
-        const closeHelpBtn = document.getElementById('closeHelpBtn');
-        
-        if (infoButton) {
-          infoButton.addEventListener('click', function() {
-            helpOverlay.style.display = 'flex';
-          });
-        }
-        
-        if (closeHelpBtn) {
-          closeHelpBtn.addEventListener('click', function() {
-            helpOverlay.style.display = 'none';
-          });
-        }
-      });
+      // Simple polyfill for ARButton if needed
+      if (typeof ARButton === 'undefined') {
+        window.ARButton = {
+          createButton: function(renderer, sessionInit = {}) {
+            const button = document.createElement('button');
+            button.style.display = 'none';
+            return button;
+          }
+        };
+      }
     </script>
 
     <script src="script.js"></script>

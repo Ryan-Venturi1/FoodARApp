@@ -12,26 +12,12 @@ let hitTestSourceRequested = false;
 // Food database cache for faster lookups
 const foodCache = new Map();
 
-// (Retain foodKeywords in case you want to filter later for nutrition lookups)
-const foodKeywords = [
-  'food', 'snack', 'chip', 'crisp', 'fruit', 'vegetable', 'meat', 'drink', 'beverage',
-  'chocolate', 'candy', 'sweet', 'cookie', 'cracker', 'bread', 'cereal', 'yogurt', 
-  'milk', 'juice', 'soda', 'water', 'coffee', 'tea', 'sandwich', 'burger', 'pizza',
-  'pasta', 'rice', 'bean', 'nut', 'cake', 'pie', 'ice cream', 'dessert', 'soup',
-  'salad', 'sauce', 'oil', 'vinegar', 'sugar', 'salt', 'pepper', 'spice', 'herb',
-  'package', 'box', 'bag', 'bottle', 'can', 'container', 'wrapper', 'packet',
-  'doritos', 'lays', 'cheetos', 'pringles', 'oreo', 'kitkat', 'snickers', 'popcorn',
-  'cola', 'pepsi', 'sprite', 'fanta', 'mountain dew', 'redbull', 'monster', 'coke',
-  'packaged', 'processed', 'junk', 'fast', 'frozen', 'dried', 'instant', 'ready',
-  'nestle', 'kraft', 'hershey', 'nabisco', 'frito', 'kellogg', 'heinz', 'campbell',
-  'coca', 'pepsi', 'mars', 'general', 'mills', 'unilever', 'danone', 'mondelez'
-];
-
-// ----- CAMERA-BASED AR FALLBACK (For devices without WebXR) -----
+// ----- SPATIAL ANCHORING FALLBACK (For devices without WebXR) -----
 let usingWebXRFallback = false;
 let activeNutritionPanels = [];
-let touchStartY = 0;
-let lastPanelPosition = { x: 0, y: 0 };
+let panelPositions = []; // Store panel positions relative to camera orientation
+let lastDeviceOrientation = null;
+let isOrientationAvailable = false;
 
 // Check if WebXR is supported, otherwise use fallback
 function checkARSupport() {
@@ -76,78 +62,73 @@ function setupARFallback() {
   panelsContainer.className = 'nutrition-panels-container';
   document.body.appendChild(panelsContainer);
   
-  // Add AR interaction instructions
-  const instructions = document.createElement('div');
-  instructions.className = 'ar-instructions';
-  instructions.innerHTML = `
-    <div class="instruction-box">
-      <p>Tap anywhere to place nutrition panel</p>
-      <p>Pinch to resize</p>
-      <p>Drag to move</p>
-    </div>
-  `;
-  document.body.appendChild(instructions);
+  // Check if device orientation is available
+  if (window.DeviceOrientationEvent) {
+    window.addEventListener('deviceorientation', handleOrientation);
+    isOrientationAvailable = true;
+  }
+}
+
+// Handle device orientation changes
+function handleOrientation(event) {
+  if (!isOrientationAvailable) return;
   
-  // Make instructions disappear after 4 seconds
-  setTimeout(() => {
-    instructions.style.opacity = '0';
-    setTimeout(() => {
-      instructions.style.display = 'none';
-    }, 1000);
-  }, 4000);
+  const orientation = {
+    alpha: event.alpha || 0, // compass direction (0-360)
+    beta: event.beta || 0,   // front-to-back tilt (-180-180)
+    gamma: event.gamma || 0  // left-to-right tilt (-90-90)
+  };
   
-  // Add touch event listeners for panel interaction
-  document.addEventListener('touchstart', handleTouchStart);
-  document.addEventListener('touchmove', handleTouchMove);
-  document.addEventListener('touchend', handleTouchEnd);
+  // First orientation reading
+  if (!lastDeviceOrientation) {
+    lastDeviceOrientation = orientation;
+    return;
+  }
+
+  // Calculate orientation change
+  const deltaAlpha = orientation.alpha - lastDeviceOrientation.alpha;
+  const deltaBeta = orientation.beta - lastDeviceOrientation.beta;
+  const deltaGamma = orientation.gamma - lastDeviceOrientation.gamma;
+  
+  // Update panel positions based on orientation change
+  if (activeNutritionPanels.length > 0) {
+    updatePanelPositionsWithOrientation(deltaAlpha, deltaBeta, deltaGamma);
+  }
+  
+  lastDeviceOrientation = orientation;
 }
 
-// Handle touch start event for AR interaction
-function handleTouchStart(event) {
-  if (event.touches.length === 1) {
-    touchStartY = event.touches[0].clientY;
-    
-    // Check if touching an existing panel
-    const touch = event.touches[0];
-    const panels = document.querySelectorAll('.nutrition-panel');
-    
-    let touchedPanel = null;
-    panels.forEach(panel => {
-      const rect = panel.getBoundingClientRect();
-      if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
-          touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
-        touchedPanel = panel;
-      }
-    });
-    
-    if (touchedPanel) {
-      // Start moving the panel
-      touchedPanel.classList.add('moving');
-      lastPanelPosition.x = touch.clientX - touchedPanel.getBoundingClientRect().left;
-      lastPanelPosition.y = touch.clientY - touchedPanel.getBoundingClientRect().top;
-    }
+// Update panel positions when device orientation changes
+function updatePanelPositionsWithOrientation(deltaAlpha, deltaBeta, deltaGamma) {
+  // Only make updates for significant changes to prevent jitter
+  if (Math.abs(deltaAlpha) < 0.5 && Math.abs(deltaBeta) < 0.5 && Math.abs(deltaGamma) < 0.5) {
+    return;
   }
-}
+  
+  // Update each panel's position based on orientation change
+  activeNutritionPanels.forEach((panel, index) => {
+    if (!panelPositions[index]) return;
 
-// Handle touch move event for AR interaction
-function handleTouchMove(event) {
-  const movingPanel = document.querySelector('.nutrition-panel.moving');
-  if (movingPanel && event.touches.length === 1) {
-    const touch = event.touches[0];
-    movingPanel.style.left = `${touch.clientX - lastPanelPosition.x}px`;
-    movingPanel.style.top = `${touch.clientY - lastPanelPosition.y}px`;
+    // Calculate new position with scaling factors to make movement feel natural
+    const scalingFactor = 2.5;
     
-    // Prevent scrolling while moving panel
-    event.preventDefault();
-  }
-}
-
-// Handle touch end event for AR interaction
-function handleTouchEnd(event) {
-  const movingPanel = document.querySelector('.nutrition-panel.moving');
-  if (movingPanel) {
-    movingPanel.classList.remove('moving');
-  }
+    // Adjust panel position based on orientation (more gamma (left-right) than alpha (compass))
+    let newLeft = panelPositions[index].left - (deltaGamma * scalingFactor);
+    let newTop = panelPositions[index].top + (deltaBeta * scalingFactor / 2);
+    
+    // Keep panels in view
+    const maxLeft = window.innerWidth - 310;
+    const maxTop = window.innerHeight - 400;
+    newLeft = Math.max(10, Math.min(maxLeft, newLeft));
+    newTop = Math.max(70, Math.min(maxTop, newTop));
+    
+    // Update panel position
+    panel.style.left = `${newLeft}px`;
+    panel.style.top = `${newTop}px`;
+    
+    // Store updated position
+    panelPositions[index] = { left: newLeft, top: newTop };
+  });
 }
 
 // Create a nutrition panel in fallback AR mode
@@ -214,6 +195,9 @@ function createFallbackNutritionPanel(nutritionData) {
   // Add to active panels array
   activeNutritionPanels.push(panel);
   
+  // Store panel position for spatial tracking
+  panelPositions.push({ left: posX, top: posY });
+  
   // Animate panel entry
   setTimeout(() => {
     panel.style.transform = 'scale(1)';
@@ -221,13 +205,103 @@ function createFallbackNutritionPanel(nutritionData) {
   }, 50);
   
   // Add panel interaction events
-  panel.addEventListener('touchstart', (e) => {
-    // Bring panel to front
-    activeNutritionPanels.forEach(p => p.style.zIndex = '20');
-    panel.style.zIndex = '21';
-  });
+  panel.addEventListener('touchstart', handlePanelTouch);
+  panel.addEventListener('mousedown', handlePanelMouseDown);
   
   return panel;
+}
+
+// Handle panel touch events
+function handlePanelTouch(event) {
+  const panel = event.currentTarget;
+  
+  // Get original position
+  const startX = event.touches[0].clientX;
+  const startY = event.touches[0].clientY;
+  const startLeft = parseFloat(panel.style.left);
+  const startTop = parseFloat(panel.style.top);
+  
+  // Add to front
+  activeNutritionPanels.forEach(p => p.style.zIndex = '20');
+  panel.style.zIndex = '21';
+  
+  // Moving class for styling
+  panel.classList.add('moving');
+  
+  // Move handlers
+  function handleTouchMove(e) {
+    const deltaX = e.touches[0].clientX - startX;
+    const deltaY = e.touches[0].clientY - startY;
+    
+    const newLeft = startLeft + deltaX;
+    const newTop = startTop + deltaY;
+    
+    panel.style.left = `${newLeft}px`;
+    panel.style.top = `${newTop}px`;
+    
+    // Update position in tracking array
+    const index = activeNutritionPanels.indexOf(panel);
+    if (index !== -1) {
+      panelPositions[index] = { left: newLeft, top: newTop };
+    }
+    
+    // Prevent default to avoid page scrolling
+    e.preventDefault();
+  }
+  
+  function handleTouchEnd() {
+    panel.classList.remove('moving');
+    document.removeEventListener('touchmove', handleTouchMove);
+    document.removeEventListener('touchend', handleTouchEnd);
+  }
+  
+  document.addEventListener('touchmove', handleTouchMove);
+  document.addEventListener('touchend', handleTouchEnd);
+}
+
+// Handle panel mouse events (for desktop)
+function handlePanelMouseDown(event) {
+  const panel = event.currentTarget;
+  
+  // Get original position
+  const startX = event.clientX;
+  const startY = event.clientY;
+  const startLeft = parseFloat(panel.style.left);
+  const startTop = parseFloat(panel.style.top);
+  
+  // Add to front
+  activeNutritionPanels.forEach(p => p.style.zIndex = '20');
+  panel.style.zIndex = '21';
+  
+  // Moving class for styling
+  panel.classList.add('moving');
+  
+  // Move handlers
+  function handleMouseMove(e) {
+    const deltaX = e.clientX - startX;
+    const deltaY = e.clientY - startY;
+    
+    const newLeft = startLeft + deltaX;
+    const newTop = startTop + deltaY;
+    
+    panel.style.left = `${newLeft}px`;
+    panel.style.top = `${newTop}px`;
+    
+    // Update position in tracking array
+    const index = activeNutritionPanels.indexOf(panel);
+    if (index !== -1) {
+      panelPositions[index] = { left: newLeft, top: newTop };
+    }
+  }
+  
+  function handleMouseUp() {
+    panel.classList.remove('moving');
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  }
+  
+  document.addEventListener('mousemove', handleMouseMove);
+  document.addEventListener('mouseup', handleMouseUp);
 }
 
 // ----- THREE.JS & AR SETUP -----
@@ -310,6 +384,7 @@ function animate(timestamp, frame) {
 function buildNutritionPanel(nutritionData) {
   // Instead of using a global nutritionPanel, we build and return a new panel group.
   const panelGroup = new THREE.Group();
+  panelGroup.name = 'nutrition-panel-' + Date.now(); // Add unique identifier
   
   // Create a rounded rectangle panel
   const roundedRectShape = new THREE.Shape();
@@ -362,7 +437,7 @@ function buildNutritionPanel(nutritionData) {
       context.shadowOffsetX = 1;
       context.shadowOffsetY = 1;
     }
-    const lines = nutritionData.split('\n');
+    const lines = text.split('\n');
     const lineHeight = 40;
     const startY = canvas.height/2 - (lines.length - 1) * lineHeight/2;
     lines.forEach((line, index) => {
@@ -705,394 +780,22 @@ Quagga.onDetected(function(result) {
     });
 });
 
-// ----- VISUAL RECOGNITION MODE -----
-let mobilenet = null;
-let isRecognitionMode = false;
-let lastRecognitionTime = 0;
-let recognitionInterval = null;
-let currentRecognitionResults = [];
-
-// Initialize TensorFlow and MobileNet
-async function initVisualRecognition() {
-  try {
-    document.getElementById('status').innerText = "Loading visual recognition...";
-    console.log("Loading MobileNet model...");
-    mobilenet = await mobilenetModule.load();
-    console.log("MobileNet loaded successfully");
-    document.getElementById('status').innerText = "Visual recognition ready!";
-    
-    // Create recognition UI if it doesn't exist
-    if (!document.getElementById('recognitionUI')) {
-      const recognitionUI = document.createElement('div');
-      recognitionUI.id = 'recognitionUI';
-      recognitionUI.innerHTML = `
-        <div class="recognition-frame"></div>
-        <div class="recognition-target"></div>
-        <div class="recognition-pulse"></div>
-      `;
-      document.body.appendChild(recognitionUI);
-    }
-    
-    // Create visual mode button if it doesn't exist
-    if (!document.getElementById('visualMode')) {
-      const scanMode = document.getElementById('scanMode');
-      const visualModeBtn = document.createElement('button');
-      visualModeBtn.id = 'visualMode';
-      visualModeBtn.className = 'modeBtn';
-      visualModeBtn.innerText = 'Visual';
-      visualModeBtn.addEventListener('click', toggleVisualRecognition);
-      scanMode.appendChild(visualModeBtn);
-    }
-    
-    // Add snapshot canvas if it doesn't exist
-    if (!document.getElementById('snapshotCanvas')) {
-      const snapshotCanvas = document.createElement('canvas');
-      snapshotCanvas.id = 'snapshotCanvas';
-      document.body.appendChild(snapshotCanvas);
-    }
-    
-    // Add product snapshot element
-    if (!document.getElementById('productSnapshot')) {
-      const productSnapshot = document.createElement('img');
-      productSnapshot.id = 'productSnapshot';
-      productSnapshot.className = 'product-snapshot';
-      document.body.appendChild(productSnapshot);
-    }
-    
-    // Add voice instruction element
-    const voiceInstruction = document.createElement('div');
-    voiceInstruction.className = 'voice-instruction';
-    voiceInstruction.innerHTML = '🔊';
-    voiceInstruction.addEventListener('click', () => {
-      speakInstructions("Point your camera at a food item and tap the screen to analyze it.");
-    });
-    document.body.appendChild(voiceInstruction);
-    
-  } catch (error) {
-    console.error("Error initializing MobileNet:", error);
-    document.getElementById('status').innerText = "Visual recognition unavailable.";
-  }
+// ----- UI EVENT LISTENERS -----
+if (document.getElementById('barcodeMode')) {
+  document.getElementById('barcodeMode').addEventListener('click', function() {
+    startBarcodeScanning();
+  });
 }
 
-// Toggle visual recognition mode
-function toggleVisualRecognition() {
-  isRecognitionMode = !isRecognitionMode;
-  const visualModeBtn = document.getElementById('visualMode');
-  const recognitionUI = document.getElementById('recognitionUI');
-  const barcodeModeBtn = document.getElementById('barcodeMode');
-  
-  if (isRecognitionMode) {
-    if (isQuaggaRunning) {
-      stopBarcodeScanning();
-    }
-    
-    visualModeBtn.classList.add('active');
-    barcodeModeBtn.classList.remove('active');
-    recognitionUI.style.display = 'block';
-    document.getElementById('videoElement').style.display = 'block';
-    document.getElementById('status').innerText = "Point camera at a food item";
-    
-    // Speak instructions
-    speakInstructions("Visual recognition mode active. Point your camera at a food item and tap the screen to analyze it.");
-    
-    // Start periodic recognition
-    startPeriodicRecognition();
-  } else {
-    visualModeBtn.classList.remove('active');
-    recognitionUI.style.display = 'none';
-    document.getElementById('status').innerText = "Select a scan mode";
-    
-    // Stop periodic recognition
-    stopPeriodicRecognition();
-  }
-}
+document.getElementById('switchCameraBtn').addEventListener('click', function() {
+  if (isQuaggaRunning) stopBarcodeScanning();
+  initCamera(true);
+});
 
-// Start periodic recognition
-function startPeriodicRecognition() {
-  if (recognitionInterval) {
-    clearInterval(recognitionInterval);
-  }
-  
-  recognitionInterval = setInterval(() => {
-    if (isRecognitionMode && mobilenet) {
-      captureAndRecognize(false); // Don't show results automatically
-    }
-  }, 2000);
-  
-  // Add tap listener for manual capture
-  document.getElementById('videoElement').addEventListener('click', handleVideoTap);
-}
-
-// Stop periodic recognition
-function stopPeriodicRecognition() {
-  if (recognitionInterval) {
-    clearInterval(recognitionInterval);
-    recognitionInterval = null;
-  }
-  
-  // Remove tap listener
-  document.getElementById('videoElement').removeEventListener('click', handleVideoTap);
-}
-
-// Handle video tap for manual recognition
-function handleVideoTap(event) {
-  if (isRecognitionMode && mobilenet) {
-    captureAndRecognize(true); // Show results
-  }
-}
-
-// Capture video frame and perform recognition
-async function captureAndRecognize(showResults = true) {
-  const video = document.getElementById('videoElement');
-  const snapshotCanvas = document.getElementById('snapshotCanvas');
-  const productSnapshot = document.getElementById('productSnapshot');
-  
-  if (!video || !snapshotCanvas || !mobilenet || !video.srcObject) return;
-  
-  // Only proceed if enough time has passed since last full recognition
-  const now = Date.now();
-  if (showResults && now - lastRecognitionTime < 1000) return;
-  
-  try {
-    // Set canvas dimensions to match video
-    const videoWidth = video.videoWidth;
-    const videoHeight = video.videoHeight;
-    
-    if (videoWidth === 0 || videoHeight === 0) return;
-    
-    snapshotCanvas.width = videoWidth;
-    snapshotCanvas.height = videoHeight;
-    
-    // Capture video frame to canvas
-    const ctx = snapshotCanvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, videoWidth, videoHeight);
-    
-    // Perform recognition using MobileNet
-    const imgData = snapshotCanvas.toDataURL('image/jpeg');
-    
-    // Create a temporary image for TensorFlow to analyze
-    const tempImg = new Image();
-    tempImg.src = imgData;
-    
-    // Wait for image to load
-    await new Promise(resolve => {
-      tempImg.onload = resolve;
-    });
-    
-    // Classify the image
-    const predictions = await mobilenet.classify(tempImg);
-    
-    // Store results
-    currentRecognitionResults = predictions;
-    
-    // If we should show results (manual tap)
-    if (showResults) {
-      lastRecognitionTime = now;
-      
-      // Update status with top prediction
-      if (predictions.length > 0) {
-        const foodPredictions = predictions.filter(p => 
-          isFoodItem(p.className.toLowerCase())
-        );
-        
-        if (foodPredictions.length > 0) {
-          const topFood = foodPredictions[0];
-          document.getElementById('status').innerText = `Detected: ${topFood.className} (${Math.round(topFood.probability * 100)}%)`;
-          
-          // Show product snapshot
-          productSnapshot.src = imgData;
-          productSnapshot.style.top = '120px';
-          productSnapshot.style.right = '15px';
-          productSnapshot.classList.add('active');
-          
-          // Search for the food item
-          searchFoodItem(topFood.className);
-          
-          // Visual feedback
-          document.querySelector('.recognition-target').style.borderColor = '#4CAF50';
-          setTimeout(() => {
-            document.querySelector('.recognition-target').style.borderColor = 'rgba(66, 133, 244, 0.8)';
-          }, 1000);
-        } else {
-          document.getElementById('status').innerText = "No food item detected. Try again.";
-        }
-      } else {
-        document.getElementById('status').innerText = "Recognition failed. Try again.";
-      }
-    }
-  } catch (error) {
-    console.error("Error in recognition:", error);
-    if (showResults) {
-      document.getElementById('status').innerText = "Recognition error. Try again.";
-    }
-  }
-}
-
-// Check if an item is likely to be food
-function isFoodItem(itemName) {
-  // Check against food keywords
-  return foodKeywords.some(keyword => itemName.includes(keyword));
-}
-
-// Text-to-speech function for instructions
-function speakInstructions(text) {
-  // Check if browser supports speech synthesis
-  if ('speechSynthesis' in window) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1;
-    utterance.pitch = 1;
-    utterance.volume = 0.8;
-    
-    // Select a voice (optional)
-    const voices = window.speechSynthesis.getVoices();
-    const englishVoice = voices.find(voice => voice.lang.startsWith('en-'));
-    if (englishVoice) utterance.voice = englishVoice;
-    
-    window.speechSynthesis.speak(utterance);
-  }
-}
-
-// ----- VOICE CONTROL AND INTERACTIVE FEATURES -----
-let isSpeechRecognitionAvailable = false;
-let speechRecognition = null;
-let isListening = false;
-
-// Initialize speech recognition
-function initSpeechRecognition() {
-  // Check if browser supports speech recognition
-  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-    isSpeechRecognitionAvailable = true;
-    
-    // Create speech recognition instance
-    speechRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-    speechRecognition.continuous = false;
-    speechRecognition.interimResults = false;
-    speechRecognition.lang = 'en-US';
-    
-    // Handle speech recognition results
-    speechRecognition.onresult = function(event) {
-      const transcript = event.results[0][0].transcript.toLowerCase();
-      console.log("Voice command:", transcript);
-      
-      // Process commands
-      if (transcript.includes('scan') || transcript.includes('barcode')) {
-        document.getElementById('barcodeMode').click();
-      } else if (transcript.includes('visual') || transcript.includes('recognize')) {
-        document.getElementById('visualMode').click();
-      } else if (transcript.includes('switch') || transcript.includes('camera')) {
-        document.getElementById('switchCameraBtn').click();
-      } else if (transcript.includes('help') || transcript.includes('instruction')) {
-        speakInstructions("Point your camera at a food barcode to scan or use visual mode to recognize food items.");
-      } else if (transcript.includes('search') || transcript.includes('find')) {
-        // Extract food name from command
-        const foodTerms = transcript.replace('search', '').replace('find', '').trim();
-        if (foodTerms) {
-          searchFoodItem(foodTerms);
-        }
-      } else if (transcript.includes('clear') || transcript.includes('reset')) {
-        clearNutritionPanels();
-      }
-    };
-    
-    // Handle errors
-    speechRecognition.onerror = function(event) {
-      console.error("Speech recognition error:", event.error);
-      isListening = false;
-      updateVoiceButton();
-    };
-    
-    speechRecognition.onend = function() {
-      isListening = false;
-      updateVoiceButton();
-    };
-    
-    // Create voice control button
-    createVoiceControlButton();
-  }
-}
-
-// Create voice control button
-function createVoiceControlButton() {
-  if (!isSpeechRecognitionAvailable) return;
-  
-  const voiceBtn = document.createElement('button');
-  voiceBtn.id = 'voiceControlBtn';
-  voiceBtn.className = 'control-button voice-btn';
-  voiceBtn.innerHTML = '🎤';
-  voiceBtn.addEventListener('click', toggleVoiceControl);
-  
-  const buttonContainer = document.querySelector('.button-container');
-  buttonContainer.appendChild(voiceBtn);
-}
-
-// Toggle voice control
-function toggleVoiceControl() {
-  if (!isSpeechRecognitionAvailable) return;
-  
-  if (isListening) {
-    stopListening();
-  } else {
-    startListening();
-  }
-}
-
-// Start listening for voice commands
-function startListening() {
-  try {
-    speechRecognition.start();
-    isListening = true;
-    document.getElementById('status').innerText = "Listening for commands...";
-    updateVoiceButton();
-    
-    // Add visual feedback
-    const voiceBtn = document.getElementById('voiceControlBtn');
-    if (voiceBtn) {
-      voiceBtn.classList.add('listening');
-    }
-    
-    // Auto-stop after 10 seconds if no result
-    setTimeout(() => {
-      if (isListening) {
-        stopListening();
-      }
-    }, 10000);
-  } catch (error) {
-    console.error("Error starting speech recognition:", error);
-  }
-}
-
-// Stop listening for voice commands
-function stopListening() {
-  try {
-    speechRecognition.stop();
-    isListening = false;
-    updateVoiceButton();
-    
-    // Remove visual feedback
-    const voiceBtn = document.getElementById('voiceControlBtn');
-    if (voiceBtn) {
-      voiceBtn.classList.remove('listening');
-    }
-  } catch (error) {
-    console.error("Error stopping speech recognition:", error);
-  }
-}
-
-// Update voice button appearance
-function updateVoiceButton() {
-  const voiceBtn = document.getElementById('voiceControlBtn');
-  if (voiceBtn) {
-    if (isListening) {
-      voiceBtn.style.backgroundColor = '#f44336';
-      voiceBtn.style.color = 'white';
-      voiceBtn.style.animation = 'pulse 1.5s infinite';
-    } else {
-      voiceBtn.style.backgroundColor = 'rgba(255,255,255,0.9)';
-      voiceBtn.style.color = '#000';
-      voiceBtn.style.animation = 'none';
-    }
-  }
-}
+document.getElementById('retryPermission').addEventListener('click', function() {
+  showPermissionError(false);
+  initCamera();
+});
 
 // Clear all nutrition panels
 function clearNutritionPanels() {
@@ -1106,6 +809,7 @@ function clearNutritionPanels() {
       }, 300);
     });
     activeNutritionPanels = [];
+    panelPositions = [];
   } else {
     // Remove panels from Three.js scene
     scene.traverse((object) => {
@@ -1118,124 +822,15 @@ function clearNutritionPanels() {
   document.getElementById('status').innerText = "Cleared all nutrition panels";
 }
 
-// Add UI for nutrition comparison
-function createComparisonFeature() {
-  // Add a button to compare items
-  const compareBtn = document.createElement('button');
-  compareBtn.id = 'compareItemsBtn';
-  compareBtn.className = 'modeBtn';
-  compareBtn.style.marginLeft = '20px';
-  compareBtn.innerText = 'Compare';
-  compareBtn.addEventListener('click', toggleComparisonMode);
+// Add clear button
+function addClearButton() {
+  const clearBtn = document.createElement('button');
+  clearBtn.id = 'clearPanelsBtn';
+  clearBtn.className = 'control-button';
+  clearBtn.innerHTML = '🗑️';
+  clearBtn.addEventListener('click', clearNutritionPanels);
   
-  document.getElementById('scanMode').appendChild(compareBtn);
-}
-
-// Toggle comparison mode
-function toggleComparisonMode() {
-  const compareBtn = document.getElementById('compareItemsBtn');
-  
-  if (compareBtn.classList.contains('active')) {
-    // Exit comparison mode
-    compareBtn.classList.remove('active');
-    if (usingWebXRFallback) {
-      // Reset panel positioning
-      document.querySelectorAll('.nutrition-panel').forEach(panel => {
-        panel.classList.remove('comparison-mode');
-      });
-    }
-  } else {
-    // Enter comparison mode
-    compareBtn.classList.add('active');
-    if (usingWebXRFallback) {
-      // Arrange panels side by side
-      const panels = document.querySelectorAll('.nutrition-panel');
-      if (panels.length >= 2) {
-        panels.forEach((panel, index) => {
-          panel.classList.add('comparison-mode');
-          panel.style.left = `${index * 310 + 10}px`;
-          panel.style.top = '100px';
-          panel.style.zIndex = '20';
-        });
-      } else {
-        speakInstructions("Scan at least two items to compare");
-      }
-    }
-  }
-}
-
-// Add social sharing feature
-function addSharingFeature() {
-  const shareBtn = document.createElement('button');
-  shareBtn.id = 'shareResultsBtn';
-  shareBtn.className = 'control-button';
-  shareBtn.innerHTML = '📤';
-  shareBtn.addEventListener('click', shareResults);
-  
-  document.querySelector('.button-container').appendChild(shareBtn);
-}
-
-// Share nutrition results
-function shareResults() {
-  // Capture the current state
-  const video = document.getElementById('videoElement');
-  const canvas = document.createElement('canvas');
-  
-  // Set canvas dimensions to match video
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  
-  // Get canvas context and draw video
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight, 0, 0, canvas.width, canvas.height);
-  
-  // Draw nutrition panels
-  if (usingWebXRFallback) {
-    document.querySelectorAll('.nutrition-panel').forEach(panel => {
-      const rect = panel.getBoundingClientRect();
-      ctx.drawImage(panel, rect.left, rect.top, rect.width, rect.height);
-    });
-  }
-  
-  // Convert to data URL
-  const dataUrl = canvas.toDataURL('image/jpeg');
-  
-  // Use Web Share API if available
-  if (navigator.share) {
-    const fileName = 'nutrition-scan-' + new Date().toISOString().slice(0, 10) + '.jpg';
-    const file = dataURLtoFile(dataUrl, fileName);
-    
-    navigator.share({
-      title: 'Nutrition Scanner Results',
-      text: 'Check out this nutrition info I scanned!',
-      files: [file]
-    }).then(() => {
-      console.log('Shared successfully');
-    }).catch((error) => {
-      console.error('Error sharing:', error);
-    });
-  } else {
-    // Fallback: create download link
-    const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = 'nutrition-scan-' + new Date().toISOString().slice(0, 10) + '.jpg';
-    link.click();
-  }
-}
-
-// Convert data URL to file
-function dataURLtoFile(dataurl, filename) {
-  const arr = dataurl.split(',');
-  const mime = arr[0].match(/:(.*?);/)[1];
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n);
-  }
-  
-  return new File([u8arr], filename, { type: mime });
+  document.querySelector('.button-container').appendChild(clearBtn);
 }
 
 // Show welcome message
@@ -1252,12 +847,12 @@ function showWelcomeMessage() {
           <div class="feature-text">Scan barcodes</div>
         </div>
         <div class="feature">
-          <div class="feature-icon">👁️</div>
-          <div class="feature-text">Visual recognition</div>
+          <div class="feature-icon">📊</div>
+          <div class="feature-text">View nutrition info</div>
         </div>
         <div class="feature">
-          <div class="feature-icon">🔊</div>
-          <div class="feature-text">Voice control</div>
+          <div class="feature-icon">📍</div>
+          <div class="feature-text">AR positioning</div>
         </div>
       </div>
       <button id="startScanningBtn">Start Scanning</button>
@@ -1280,32 +875,14 @@ function showWelcomeMessage() {
   });
 }
 
-// ----- UI EVENT LISTENERS -----
-document.getElementById('barcodeMode').addEventListener('click', function() {
-  startBarcodeScanning();
-});
-
-document.getElementById('switchCameraBtn').addEventListener('click', function() {
-  if (isQuaggaRunning) stopBarcodeScanning();
-  initCamera(true);
-});
-
-document.getElementById('retryPermission').addEventListener('click', function() {
-  showPermissionError(false);
-  initCamera();
-});
-
 // ----- INITIALIZATION -----
 window.addEventListener('load', () => {
   initCamera();
   checkARSupport();
   setTimeout(() => {
-    initVisualRecognition();
-    initSpeechRecognition();
-    createComparisonFeature();
-    addSharingFeature();
-    
-    // Show welcome message and intro animation
+    // Add UI components
+    addClearButton();
+    // Show welcome message
     showWelcomeMessage();
   }, 2000);
 });
