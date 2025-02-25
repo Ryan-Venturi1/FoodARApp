@@ -1,21 +1,32 @@
 // Global variables
-let currentMode = 'barcode'; // Only barcode mode now
-const videoElement = document.getElementById('videoElement');
-let isQuaggaRunning = false;
-let frontCamera = false;
 let currentStream = null;
-const quaggaContainer = document.getElementById('quaggaContainer');
-const barcodeScannerUI = document.getElementById('barcodeScannerUI');
-const loadingIndicator = document.getElementById('loadingIndicator');
-const permissionError = document.getElementById('permissionError');
+let frontCamera = false;
+let isQuaggaRunning = false;
 
-// Three.js variables
+// Three.js variables for displaying nutrition info
 let scene, camera, renderer;
 let nutritionPanel;
 let isThreeJsInitialized = false;
 
 // Food database cache for faster lookups
 const foodCache = new Map();
+
+// Extended food keyword list (retained for nutrition lookup purposes)
+const foodKeywords = [
+  'food', 'snack', 'chip', 'crisp', 'fruit', 'vegetable', 'meat', 'drink', 'beverage',
+  'chocolate', 'candy', 'sweet', 'cookie', 'cracker', 'bread', 'cereal', 'yogurt', 
+  'milk', 'juice', 'soda', 'water', 'coffee', 'tea', 'sandwich', 'burger', 'pizza',
+  'pasta', 'rice', 'bean', 'nut', 'cake', 'pie', 'ice cream', 'dessert', 'soup',
+  'salad', 'sauce', 'oil', 'vinegar', 'sugar', 'salt', 'pepper', 'spice', 'herb',
+  'package', 'box', 'bag', 'bottle', 'can', 'container', 'wrapper', 'packet',
+  'doritos', 'lays', 'cheetos', 'pringles', 'oreo', 'kitkat', 'snickers', 'popcorn',
+  'cola', 'pepsi', 'sprite', 'fanta', 'mountain dew', 'redbull', 'monster', 'coke',
+  'packaged', 'processed', 'junk', 'fast', 'frozen', 'dried', 'instant', 'ready',
+  'nestle', 'kraft', 'hershey', 'nabisco', 'frito', 'kellogg', 'heinz', 'campbell',
+  'coca', 'pepsi', 'mars', 'general', 'mills', 'unilever', 'danone', 'mondelez'
+];
+
+/* ----- Three.js and Nutrition Panel Setup ----- */
 
 // Initialize Three.js scene with modern design
 function initThreeJs() {
@@ -33,22 +44,19 @@ function initThreeJs() {
     renderer = new THREE.WebGLRenderer({
       canvas: document.getElementById('canvas3d'),
       alpha: true,
-      antialias: true // Smoother edges
+      antialias: true
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x000000, 0); // Transparent background
-    renderer.setPixelRatio(window.devicePixelRatio); // Sharper rendering
+    renderer.setPixelRatio(window.devicePixelRatio);
     
-    // Better lighting for 3D objects
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-    scene.add(ambientLight);
-    
+    // Add lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
     directionalLight.position.set(5, 5, 5);
     directionalLight.castShadow = true;
     scene.add(directionalLight);
     
-    // Add subtle backlight
     const backLight = new THREE.DirectionalLight(0x9090ff, 0.5);
     backLight.position.set(-5, 5, -5);
     scene.add(backLight);
@@ -68,7 +76,7 @@ function initThreeJs() {
     return true;
   } catch (error) {
     console.error("Error initializing Three.js:", error);
-    document.getElementById('status').innerText = "Error creating AR display";
+    document.getElementById('status').innerText = "Error creating 3D display";
     return false;
   }
 }
@@ -81,9 +89,6 @@ function animate() {
     if (nutritionPanel) {
       // Gentle floating animation
       nutritionPanel.position.y = 0.1 * Math.sin(Date.now() * 0.001);
-      
-      // Add slow rotation for AR feel
-      nutritionPanel.rotation.y = 0.05 * Math.sin(Date.now() * 0.0005);
     }
     
     renderer.render(scene, camera);
@@ -92,7 +97,7 @@ function animate() {
   }
 }
 
-// Create modern 3D nutrition panel 
+// Create modern 3D nutrition panel
 function createNutritionPanel(nutritionData) {
   console.log("Creating nutrition panel with data:", nutritionData);
   
@@ -107,14 +112,11 @@ function createNutritionPanel(nutritionData) {
   }
   
   try {
-    // Create a group to hold all panel elements
     nutritionPanel = new THREE.Group();
     
-    // Create the main panel with rounded corners
+    // Create a rounded rectangle panel
     const roundedRectShape = new THREE.Shape();
-    const width = 3.5;
-    const height = 5.5;
-    const radius = 0.2;
+    const width = 3.5, height = 5.5, radius = 0.2;
     
     roundedRectShape.moveTo(-width/2 + radius, -height/2);
     roundedRectShape.lineTo(width/2 - radius, -height/2);
@@ -148,24 +150,21 @@ function createNutritionPanel(nutritionData) {
     panel.rotation.x = Math.PI; // Flip to show front face
     nutritionPanel.add(panel);
     
-    // Function to create modern text mesh
+    // Function to create a text mesh
     function createTextMesh(text, size, color, y, isBold = false) {
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
       canvas.width = 1024;
       canvas.height = 256;
       
-      // Fill with transparent background
       context.clearRect(0, 0, canvas.width, canvas.height);
       
-      // Draw text with better typography
       const fontWeight = isBold ? 'bold' : 'normal';
       context.font = `${fontWeight} 32px Arial, sans-serif`;
       context.fillStyle = color;
       context.textAlign = 'center';
       context.textBaseline = 'middle';
       
-      // Add subtle text shadow for legibility
       if (isBold) {
         context.shadowColor = 'rgba(0,0,0,0.2)';
         context.shadowBlur = 4;
@@ -173,8 +172,7 @@ function createNutritionPanel(nutritionData) {
         context.shadowOffsetY = 1;
       }
       
-      // Handle multiline text
-      const lines = text.split('\\n');
+      const lines = text.split('\n');
       const lineHeight = 40;
       const startY = canvas.height/2 - (lines.length - 1) * lineHeight/2;
       
@@ -182,12 +180,10 @@ function createNutritionPanel(nutritionData) {
         context.fillText(line, canvas.width/2, startY + index * lineHeight);
       });
       
-      // Create texture from canvas
       const texture = new THREE.CanvasTexture(canvas);
-      texture.minFilter = THREE.LinearFilter; // Better text quality
+      texture.minFilter = THREE.LinearFilter;
       texture.magFilter = THREE.LinearFilter;
       
-      // Create plane with texture
       const geometry = new THREE.PlaneGeometry(size, size * canvas.height / canvas.width);
       const material = new THREE.MeshBasicMaterial({
         map: texture,
@@ -196,14 +192,13 @@ function createNutritionPanel(nutritionData) {
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.y = y;
-      mesh.position.z = -0.06; // Position in front
+      mesh.position.z = -0.06;
       
       return mesh;
     }
     
-    // Parse nutrition data and create text
     const lines = nutritionData.split('\n');
-    let startY = 2.3; // Starting position from top
+    let startY = 2.3;
     
     // Add title
     nutritionPanel.add(createTextMesh(lines[0], 3.2, '#1a73e8', startY, true));
@@ -217,66 +212,49 @@ function createNutritionPanel(nutritionData) {
     divider.position.z = -0.05;
     nutritionPanel.add(divider);
     
-    // Add data lines with better spacing and colors
+    // Add data lines
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
-      
-      // Format differently based on content
       if (line.startsWith('Name:') || line.startsWith('Brand:')) {
-        // Product info in blue
         nutritionPanel.add(createTextMesh(line, 3, '#1a73e8', startY));
-      } else if (line.includes('Ingredients:')) {
-        // Ingredients in green
-        nutritionPanel.add(createTextMesh(line, 2.7, '#0f9d58', startY));
       } else if (line.includes('kcal')) {
-        // Energy in orange
         nutritionPanel.add(createTextMesh(line, 3, '#f57c00', startY));
       } else {
-        // Other nutritional info in dark gray
         nutritionPanel.add(createTextMesh(line, 3, '#202124', startY));
       }
-      
       startY -= 0.55;
     }
     
-    // Add rounded corners for a more modern look
     panel.geometry.computeVertexNormals();
-    
-    // Position the panel in front of the camera rather than to the side
-    nutritionPanel.position.x = 0; 
-    nutritionPanel.position.z = -3.5;
-    nutritionPanel.rotation.y = 0; // Straight on
-    
-    // Add to scene with an entry animation
+    nutritionPanel.position.set(0, 0, -3.5);
+    nutritionPanel.rotation.y = 0;
     nutritionPanel.scale.set(0.1, 0.1, 0.1);
     scene.add(nutritionPanel);
     console.log("Nutrition panel added to scene");
     
-    // Panel entry animation
+    // Entry animation
     const startTime = Date.now();
-    const animatePanelEntry = function() {
+    (function animatePanelEntry() {
       const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / 500, 1); // 500ms animation
-      
+      const progress = Math.min(elapsed / 500, 1);
       nutritionPanel.scale.set(
         0.1 + 0.9 * progress,
         0.1 + 0.9 * progress,
         0.1 + 0.9 * progress
       );
-      
       if (progress < 1) {
         requestAnimationFrame(animatePanelEntry);
       }
-    };
-    
-    animatePanelEntry();
+    })();
   } catch (error) {
     console.error("Error creating nutrition panel:", error);
     document.getElementById('status').innerText = "Error displaying nutrition information";
   }
 }
 
-// Function to initialize the camera stream
+/* ----- Camera & Barcode Scanning (QuaggaJS) ----- */
+
+// Initialize the camera stream and start barcode scanning
 async function initCamera(switchCamera = false) {
   showLoadingIndicator(true);
   
@@ -285,7 +263,6 @@ async function initCamera(switchCamera = false) {
     currentStream.getTracks().forEach(track => track.stop());
   }
   
-  // Toggle camera mode if switching
   if (switchCamera) {
     frontCamera = !frontCamera;
   }
@@ -303,7 +280,6 @@ async function initCamera(switchCamera = false) {
       audio: false
     };
     
-    // For mobile Safari compatibility
     if (navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad')) {
       constraints.video = { 
         facingMode: facingMode,
@@ -313,19 +289,19 @@ async function initCamera(switchCamera = false) {
     }
     
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    
+    const videoElement = document.getElementById('videoElement');
     videoElement.srcObject = stream;
     currentStream = stream;
     
-    // Update status with which camera is active
-    document.getElementById('status').innerText = 'Using ' + 
-      (frontCamera ? 'front' : 'back') + ' camera. Ready to scan barcodes.';
+    document.getElementById('status').innerText = 'Using ' + (frontCamera ? 'front' : 'back') + ' camera. Ready to scan.';
+    
+    // Hide the video element because Quagga will display its own stream
+    videoElement.style.display = 'none';
     
     showLoadingIndicator(false);
     
-    // Start in barcode mode
+    // Start barcode scanning
     startBarcodeScanning();
-    
   } catch (err) {
     console.error('Error accessing camera:', err);
     showLoadingIndicator(false);
@@ -335,27 +311,27 @@ async function initCamera(switchCamera = false) {
 
 // Show/hide loading indicator
 function showLoadingIndicator(show) {
-  loadingIndicator.style.display = show ? 'block' : 'none';
+  document.getElementById('loadingIndicator').style.display = show ? 'block' : 'none';
 }
 
 // Show/hide permission error
 function showPermissionError(show) {
-  permissionError.style.display = show ? 'flex' : 'none';
+  document.getElementById('permissionError').style.display = show ? 'flex' : 'none';
 }
 
 // Start barcode scanning using QuaggaJS
 function startBarcodeScanning() {
+  const quaggaContainer = document.getElementById('quaggaContainer');
+  const barcodeScannerUI = document.getElementById('barcodeScannerUI');
+  
   if (isQuaggaRunning) return;
   
-  // Show scanner UI
   barcodeScannerUI.style.display = 'block';
-  
-  // Clear the QuaggaJS container before reinitializing
   quaggaContainer.innerHTML = '';
   quaggaContainer.style.display = 'block';
   
-  // Make sure video is hidden as Quagga will create its own
-  videoElement.style.display = 'none';
+  // Ensure the video element is hidden
+  document.getElementById('videoElement').style.display = 'none';
   
   Quagga.init({
     inputStream: {
@@ -374,7 +350,7 @@ function startBarcodeScanning() {
       halfSample: true
     },
     numOfWorkers: navigator.hardwareConcurrency ? Math.min(navigator.hardwareConcurrency, 4) : 2,
-    frequency: 10, // Increased frequency for better detection
+    frequency: 10,
     decoder: {
       readers: ["ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader"],
       debug: {
@@ -392,7 +368,6 @@ function startBarcodeScanning() {
     
     console.log("QuaggaJS initialized.");
     
-    // Add willReadFrequently attribute to all canvases
     setTimeout(() => {
       const canvases = quaggaContainer.querySelectorAll('canvas');
       canvases.forEach(canvas => {
@@ -400,7 +375,6 @@ function startBarcodeScanning() {
         if (ctx) ctx.willReadFrequently = true;
       });
       
-      // Make sure video is visible
       const quaggaVideo = quaggaContainer.querySelector('video');
       if (quaggaVideo) {
         quaggaVideo.style.width = '100%';
@@ -417,51 +391,71 @@ function startBarcodeScanning() {
 
 // Stop barcode scanning
 function stopBarcodeScanning() {
+  const quaggaContainer = document.getElementById('quaggaContainer');
+  const barcodeScannerUI = document.getElementById('barcodeScannerUI');
+  
   if (isQuaggaRunning) {
     Quagga.stop();
     isQuaggaRunning = false;
     
-    // Clear the container
     quaggaContainer.style.display = 'none';
     quaggaContainer.innerHTML = '';
-    
-    // Hide scanner UI
     barcodeScannerUI.style.display = 'none';
     
-    // Show our video element again
-    videoElement.style.display = 'block';
+    document.getElementById('videoElement').style.display = 'block';
   }
 }
 
-// Display product information from API response
+/* ----- Product Data & Nutrition Display ----- */
+
+// Search for food item using the Open Food Facts API
+function searchFoodItem(itemName) {
+  showLoadingIndicator(true);
+  const searchTerm = itemName.split(',')[0].trim().toLowerCase();
+  document.getElementById('status').innerText = `Searching for: ${searchTerm}...`;
+  
+  if (foodCache.has(searchTerm)) {
+    const cachedData = foodCache.get(searchTerm);
+    displayProductInfo(cachedData);
+    showLoadingIndicator(false);
+    return;
+  }
+  
+  fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(searchTerm)}&search_simple=1&action=process&json=1`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`Network response was not ok: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then(data => {
+      if (data.products && data.products.length > 0) {
+        const product = data.products[0];
+        foodCache.set(searchTerm, product);
+        displayProductInfo(product);
+      } else {
+        document.getElementById('status').innerText = `No product found for: ${searchTerm}`;
+        createGenericNutritionPanel(searchTerm);
+      }
+      showLoadingIndicator(false);
+    })
+    .catch(err => {
+      console.error("Error searching product:", err);
+      document.getElementById('status').innerText = "Error searching for product data.";
+      createGenericNutritionPanel(searchTerm);
+      showLoadingIndicator(false);
+    });
+}
+
+// Display product information from the API response
 function displayProductInfo(product) {
   try {
     console.log("Displaying product info:", product);
-    
-    // Format nutrition data
     const nutriments = product.nutriments || {};
-    
-    // Check if we have actual product data
-    if (!product.product_name && !product.brands) {
-      document.getElementById("status").innerText = "Product information incomplete";
-      createGenericNutritionPanel(product.code || "Unknown Product");
-      return;
-    }
-    
-    // Format nutrition data with proper checking for undefined values
     let labelText = "Nutrition Facts\n";
     labelText += `Name: ${product.product_name || "N/A"}\n`;
     labelText += `Brand: ${product.brands || "N/A"}\n`;
     
-    // Get ingredients if available
-    if (product.ingredients_text) {
-      const shortIngredients = product.ingredients_text.length > 100 ? 
-        product.ingredients_text.substring(0, 100) + "..." : 
-        product.ingredients_text;
-      labelText += `Ingredients: ${shortIngredients}\n`;
-    }
-    
-    // Format nutrition values with consistent units and fallbacks
     const energy = nutriments["energy-kcal"] ? 
       `${Math.round(nutriments["energy-kcal"])} kcal` : 
       (nutriments["energy"] ? `${Math.round(nutriments["energy"] / 4.184)} kcal` : "N/A");
@@ -478,26 +472,16 @@ function displayProductInfo(product) {
     labelText += `Sugars: ${sugars}\n`;
     labelText += `Proteins: ${proteins}\n`;
     
-    // Add salt or sodium if available
     if (nutriments.salt) {
       labelText += `Salt: ${parseFloat(nutriments.salt).toFixed(1)}g\n`;
     } else if (nutriments.sodium) {
       labelText += `Sodium: ${parseFloat(nutriments.sodium).toFixed(1)}g\n`;
     }
     
-    // Add serving size if available
-    if (product.serving_size) {
-      labelText += `Serving: ${product.serving_size}\n`;
-    }
-    
     document.getElementById('status').innerText = "Found: " + (product.product_name || "Unknown");
-    
-    // Create 3D nutrition panel
     createNutritionPanel(labelText);
   } catch (error) {
     console.error("Error displaying product info:", error);
-    
-    // Fallback to generic panel
     const productName = product && product.product_name ? product.product_name : "Unknown Product";
     createGenericNutritionPanel(productName);
   }
@@ -505,44 +489,22 @@ function displayProductInfo(product) {
 
 // Create generic nutrition panel when exact product isn't found
 function createGenericNutritionPanel(foodName) {
-  // Generic nutrition data based on food type
   let labelText = "Estimated Nutrition\n";
   labelText += `Name: ${foodName}\n`;
   
-  // Generic values based on food keywords
-  let energy = "N/A";
-  let fat = "N/A";
-  let sugars = "N/A";
-  let proteins = "N/A";
-  
-  // Very rough estimates for common food categories
+  let energy = "N/A", fat = "N/A", sugars = "N/A", proteins = "N/A";
   const foodLower = foodName.toLowerCase();
   
   if (foodLower.includes('chip') || foodLower.includes('crisp') || foodLower.includes('snack')) {
-    energy = "150 kcal";
-    fat = "10.0g";
-    sugars = "1.5g";
-    proteins = "2.0g";
+    energy = "150 kcal"; fat = "10.0g"; sugars = "1.5g"; proteins = "2.0g";
   } else if (foodLower.includes('chocolate') || foodLower.includes('candy')) {
-    energy = "200 kcal";
-    fat = "12.0g";
-    sugars = "20.0g";
-    proteins = "2.5g";
+    energy = "200 kcal"; fat = "12.0g"; sugars = "20.0g"; proteins = "2.5g";
   } else if (foodLower.includes('soda') || foodLower.includes('cola')) {
-    energy = "120 kcal";
-    fat = "0.0g";
-    sugars = "30.0g";
-    proteins = "0.0g";
+    energy = "120 kcal"; fat = "0.0g"; sugars = "30.0g"; proteins = "0.0g";
   } else if (foodLower.includes('water') || foodLower.includes('bottle')) {
-    energy = "0 kcal";
-    fat = "0.0g";
-    sugars = "0.0g";
-    proteins = "0.0g";
+    energy = "0 kcal"; fat = "0.0g"; sugars = "0.0g"; proteins = "0.0g";
   } else {
-    energy = "100 kcal";
-    fat = "5.0g";
-    sugars = "3.0g";
-    proteins = "3.0g";
+    energy = "100 kcal"; fat = "5.0g"; sugars = "3.0g"; proteins = "3.0g";
   }
   
   labelText += `Energy: ${energy}\n`;
@@ -550,24 +512,21 @@ function createGenericNutritionPanel(foodName) {
   labelText += `Sugars: ${sugars}\n`;
   labelText += `Proteins: ${proteins}\n`;
   labelText += `Note: Estimated values\n`;
-  
-  // Create 3D nutrition panel
   createNutritionPanel(labelText);
 }
 
-// Handle barcode detection
-Quagga.onDetected = function(result) {
+/* ----- QuaggaJS Barcode Detection ----- */
+
+// Barcode detection handler
+Quagga.onDetected(function(result) {
   const code = result.codeResult.code;
   console.log("Barcode detected:", code);
   document.getElementById("status").innerText = "Barcode detected: " + code;
   
-  // Show loading indicator
   showLoadingIndicator(true);
-  
-  // Temporarily stop scanning
   Quagga.pause();
   
-  // Highlight detected barcode
+  // Optional: highlight detected barcode area (if your UI includes a .scan-area element)
   const scanArea = document.querySelector('.scan-area');
   if (scanArea) {
     scanArea.style.borderColor = 'rgba(76, 175, 80, 0.8)';
@@ -577,8 +536,7 @@ Quagga.onDetected = function(result) {
       scanArea.style.boxShadow = '0 0 0 5000px rgba(0, 0, 0, 0.5)';
     }, 1000);
   }
-
-  // Check cache first
+  
   if (foodCache.has(code)) {
     const cachedData = foodCache.get(code);
     displayProductInfo(cachedData);
@@ -586,10 +544,8 @@ Quagga.onDetected = function(result) {
     setTimeout(() => Quagga.start(), 5000);
     return;
   }
-
-  // Query the Open Food Facts API for product details with fields parameter
-  // to ensure we get all needed data
-  fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json?fields=product_name,brands,nutriments,ingredients_text,nutrient_levels,serving_size`)
+  
+  fetch("https://world.openfoodfacts.org/api/v0/product/" + code + ".json")
     .then(response => {
       if (!response.ok) {
         throw new Error(`Network response was not ok: ${response.status}`);
@@ -597,29 +553,12 @@ Quagga.onDetected = function(result) {
       return response.json();
     })
     .then(data => {
-      if(data.status === 1) {
+      if (data.status === 1) {
         const product = data.product;
-        
-        // Cache the result
         foodCache.set(code, product);
-        
-        // Display product info
         displayProductInfo(product);
       } else {
         document.getElementById("status").innerText = "Product not found for barcode: " + code;
-        // Try alternative API if main one fails
-        return fetch(`https://world.openfoodfacts.net/api/v2/product/${code}`);
-      }
-    })
-    .then(response => {
-      if (!response || !response.ok) return null;
-      return response.json();
-    })
-    .then(data => {
-      if (data && data.product) {
-        const product = data.product;
-        foodCache.set(code, product);
-        displayProductInfo(product);
       }
       showLoadingIndicator(false);
       setTimeout(() => Quagga.start(), 5000);
@@ -630,15 +569,18 @@ Quagga.onDetected = function(result) {
       showLoadingIndicator(false);
       setTimeout(() => Quagga.start(), 3000);
     });
-};
+});
+
+/* ----- UI Event Listeners ----- */
+
+document.getElementById('barcodeMode').addEventListener('click', function() {
+  startBarcodeScanning();
+});
 
 document.getElementById('switchCameraBtn').addEventListener('click', function() {
-  // Stop current scanning if active
   if (isQuaggaRunning) {
     stopBarcodeScanning();
   }
-  
-  // Initialize with camera switch
   initCamera(true);
 });
 
@@ -649,37 +591,17 @@ document.getElementById('retryPermission').addEventListener('click', function() 
 
 // Initialize the app
 window.addEventListener('load', () => {
-  // Remove the image mode button since we only use barcode mode
-  const imageModeBtn = document.getElementById('imageMode');
-  if (imageModeBtn) {
-    imageModeBtn.style.display = 'none';
-  }
-  
-  // Make barcode mode button look like a title not a toggle
-  const barcodeModeBtn = document.getElementById('barcodeMode');
-  if (barcodeModeBtn) {
-    barcodeModeBtn.classList.add('active');
-    barcodeModeBtn.style.pointerEvents = 'none';
-    barcodeModeBtn.textContent = 'Barcode Scanner';
-    barcodeModeBtn.style.padding = '12px 24px';
-  }
-  
-  // Initialize camera
   initCamera();
-  
-  // Initialize Three.js
   initThreeJs();
 });
 
-// Handle visibility changes (app going to background)
+// Handle visibility changes
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    // App came back to foreground
     if (!isQuaggaRunning) {
       startBarcodeScanning();
     }
   } else {
-    // App went to background
     if (isQuaggaRunning) {
       Quagga.stop();
       isQuaggaRunning = false;
@@ -687,7 +609,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// Cleanup function for when the page is unloaded
+// Cleanup on unload
 window.addEventListener('beforeunload', () => {
   if (currentStream) {
     currentStream.getTracks().forEach(track => track.stop());
@@ -696,32 +618,3 @@ window.addEventListener('beforeunload', () => {
     Quagga.stop();
   }
 });
-
-// Add 3D AR effects to the barcode scanner UI
-function enhanceUIWithAREffects() {
-  const scanArea = document.querySelector('.scan-area');
-  if (scanArea) {
-    // Add pulsing effect to scan area
-    scanArea.style.animation = 'pulse 2s infinite';
-    // Add keyframes for pulse animation to document
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes pulse {
-        0% { box-shadow: 0 0 0 5000px rgba(0, 0, 0, 0.5), 0 0 0 0 rgba(66, 133, 244, 0.7); }
-        70% { box-shadow: 0 0 0 5000px rgba(0, 0, 0, 0.5), 0 0 0 10px rgba(66, 133, 244, 0); }
-        100% { box-shadow: 0 0 0 5000px rgba(0, 0, 0, 0.5), 0 0 0 0 rgba(66, 133, 244, 0); }
-      }
-    `;
-    document.head.appendChild(style);
-    
-    // Add 3D perspective to the scan corners
-    const corners = document.querySelectorAll('.corner');
-    corners.forEach(corner => {
-      corner.style.transition = 'all 0.5s ease';
-      corner.style.transformStyle = 'preserve-3d';
-    });
-  }
-}
-
-// Call the enhancement function when document is ready
-document.addEventListener('DOMContentLoaded', enhanceUIWithAREffects);
