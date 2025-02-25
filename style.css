@@ -578,3 +578,216 @@ body, html {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+/* Add these styles to your style.css file */
+
+/* Nutrition Badges */
+.nutrition-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  margin-left: 8px;
+  font-weight: bold;
+  text-transform: uppercase;
+  animation: badge-pop 0.3s forwards;
+  transform: scale(0);
+}
+
+@keyframes badge-pop {
+  0% { transform: scale(0); }
+  70% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.badge-high {
+  background: rgba(244, 67, 54, 0.2);
+  color: #d32f2f;
+  border: 1px solid rgba(244, 67, 54, 0.4);
+}
+
+.badge-medium {
+  background: rgba(255, 152, 0, 0.2);
+  color: #ef6c00;
+  border: 1px solid rgba(255, 152, 0, 0.4);
+}
+
+.badge-low {
+  background: rgba(76, 175, 80, 0.2);
+  color: #2e7d32;
+  border: 1px solid rgba(76, 175, 80, 0.4);
+}
+
+/* Warning Animation */
+@keyframes pulse-warning {
+  0% { transform: translateY(-50%) scale(1); opacity: 0.7; }
+  50% { transform: translateY(-50%) scale(1.2); opacity: 1; }
+  100% { transform: translateY(-50%) scale(1); opacity: 0.7; }
+}
+
+.warning-icon {
+  animation: pulse-warning 2s infinite;
+}
+
+.warning-panel {
+  animation: warning-glow 2s infinite;
+}
+
+@keyframes warning-glow {
+  0% { box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); }
+  50% { box-shadow: 0 10px 30px rgba(244, 67, 54, 0.3); }
+  100% { box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); }
+}
+
+/* Comparison Visualization */
+.comparison-visualization {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 600px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  z-index: 30;
+  padding: 15px;
+  opacity: 0;
+  animation: fade-in 0.5s forwards;
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.viz-header {
+  text-align: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.viz-header h3 {
+  margin: 0;
+  color: #1a73e8;
+  font-size: 18px;
+}
+
+.charts-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 5px;
+}
+
+.nutrient-chart {
+  margin-bottom: 15px;
+}
+
+.chart-label {
+  font-weight: bold;
+  margin-bottom: 8px;
+  color: #202124;
+}
+
+.bars-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bar-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.product-label {
+  width: 100px;
+  font-size: 14px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #5f6368;
+}
+
+.bar-container {
+  flex-grow: 1;
+  height: 20px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bar {
+  height: 100%;
+  border-radius: 10px;
+  width: 0; /* Start at 0 for animation */
+  transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); /* Material Design easing */
+}
+
+.bar-high {
+  background-color: #d32f2f !important;
+}
+
+.bar-medium {
+  background-color: #ef6c00 !important;
+}
+
+.bar-low {
+  background-color: #2e7d32 !important;
+}
+
+.bar-protein {
+  background-color: #2e7d32 !important;
+}
+
+.value-label {
+  position: absolute;
+  right: 8px;
+  top: 0;
+  line-height: 20px;
+  font-size: 12px;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+}
+
+/* Enhanced comparison mode for panels */
+.nutrition-panel.comparison-mode {
+  z-index: 20 !important;
+  transform: scale(0.9);
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 480px) {
+  .product-label {
+    width: 80px;
+    font-size: 12px;
+  }
+  
+  .comparison-visualization {
+    width: 95%;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  
+  .viz-header h3 {
+    font-size: 16px;
+  }
+  
+  .bar-container {
+    height: 16px;
+  }
+  
+  .value-label {
+    line-height: 16px;
+    font-size: 10px;
+  }
+}

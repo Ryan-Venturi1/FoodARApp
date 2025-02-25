@@ -1287,3 +1287,635 @@ window.addEventListener('beforeunload', () => {
   if (currentStream) currentStream.getTracks().forEach(track => track.stop());
   if (isQuaggaRunning) Quagga.stop();
 });
+// Add these functions to your script.js file
+
+// ----- NUTRITIONAL VALUE CLASSIFICATION -----
+// Classify nutritional values as high, medium, or low
+function classifyNutritionalValue(nutrient, value) {
+  if (typeof value !== 'number') return null;
+  
+  // Classification thresholds based on common nutritional guidelines
+  const thresholds = {
+    fat: { high: 17.5, medium: 3.0 },      // g per 100g
+    saturates: { high: 5.0, medium: 1.5 },  // g per 100g
+    sugars: { high: 22.5, medium: 5.0 },    // g per 100g
+    salt: { high: 1.5, medium: 0.3 },       // g per 100g
+    sodium: { high: 0.6, medium: 0.1 },     // g per 100g
+    energy: { high: 400, medium: 100 }      // kcal per 100g
+  };
+  
+  if (!thresholds[nutrient]) return null;
+  
+  if (value >= thresholds[nutrient].high) {
+    return 'high';
+  } else if (value >= thresholds[nutrient].medium) {
+    return 'medium';
+  } else {
+    return 'low';
+  }
+}
+
+// Apply color coding to nutritional panels
+function applyNutritionalColorCoding(panel, nutritionData) {
+  try {
+    // Parse nutrition data to extract values
+    const lines = nutritionData.split('\n');
+    let values = {};
+    
+    // Extract values from nutrition data
+    lines.forEach(line => {
+      if (line.includes('Fat:')) {
+        const match = line.match(/Fat: ([\d.]+)g/);
+        if (match && match[1]) values.fat = parseFloat(match[1]);
+      } else if (line.includes('Sugars:')) {
+        const match = line.match(/Sugars: ([\d.]+)g/);
+        if (match && match[1]) values.sugars = parseFloat(match[1]);
+      } else if (line.includes('Salt:')) {
+        const match = line.match(/Salt: ([\d.]+)g/);
+        if (match && match[1]) values.salt = parseFloat(match[1]);
+      } else if (line.includes('Sodium:')) {
+        const match = line.match(/Sodium: ([\d.]+)g/);
+        if (match && match[1]) values.sodium = parseFloat(match[1]);
+      } else if (line.includes('Energy:')) {
+        const match = line.match(/Energy: ([\d.]+) kcal/);
+        if (match && match[1]) values.energy = parseFloat(match[1]);
+      }
+    });
+    
+    // Find the corresponding rows in the panel
+    if (usingWebXRFallback) {
+      const rows = panel.querySelectorAll('.nutrition-row');
+      rows.forEach(row => {
+        const text = row.innerText.toLowerCase();
+        
+        if (text.includes('fat:') && values.fat) {
+          addNutritionBadge(row, 'fat', values.fat);
+        } else if (text.includes('sugars:') && values.sugars) {
+          addNutritionBadge(row, 'sugars', values.sugars);
+        } else if (text.includes('salt:') && values.salt) {
+          addNutritionBadge(row, 'salt', values.salt);
+        } else if (text.includes('sodium:') && values.sodium) {
+          addNutritionBadge(row, 'sodium', values.sodium);
+        }
+      });
+      
+      // Add warning animation if there are high values
+      const hasHighValues = Object.keys(values).some(nutrient => 
+        classifyNutritionalValue(nutrient, values[nutrient]) === 'high'
+      );
+      
+      if (hasHighValues) {
+        addWarningAnimation(panel);
+      }
+    }
+    // For WebXR mode, we'd need to modify the 3D text - would need more complex implementation
+  } catch (error) {
+    console.error("Error applying color coding:", error);
+  }
+}
+
+// Add nutrition badge to row
+function addNutritionBadge(row, nutrient, value) {
+  const classification = classifyNutritionalValue(nutrient, value);
+  if (!classification) return;
+  
+  // Remove existing badge if any
+  const existingBadge = row.querySelector('.nutrition-badge');
+  if (existingBadge) existingBadge.remove();
+  
+  // Create badge
+  const badge = document.createElement('span');
+  badge.className = `nutrition-badge badge-${classification}`;
+  badge.innerText = classification.toUpperCase();
+  
+  // Add badge to row
+  row.appendChild(badge);
+  
+  // Apply color to the text as well
+  if (classification === 'high') {
+    row.style.color = '#d32f2f';
+    row.style.fontWeight = '500';
+  } else if (classification === 'medium') {
+    row.style.color = '#ef6c00';
+  } else {
+    row.style.color = '#2e7d32';
+  }
+}
+
+// Add warning animation for panels with high values
+function addWarningAnimation(panel) {
+  // Add warning icon to header
+  const header = panel.querySelector('.panel-header');
+  const warningIcon = document.createElement('div');
+  warningIcon.className = 'warning-icon';
+  warningIcon.innerHTML = '⚠️';
+  warningIcon.style.position = 'absolute';
+  warningIcon.style.left = '10px';
+  warningIcon.style.top = '50%';
+  warningIcon.style.transform = 'translateY(-50%)';
+  warningIcon.style.animation = 'pulse-warning 2s infinite';
+  
+  if (!header.querySelector('.warning-icon')) {
+    header.appendChild(warningIcon);
+  }
+  
+  // Add pulsing border animation
+  panel.classList.add('warning-panel');
+  
+  // Add CSS for animation if not already present
+  if (!document.getElementById('warning-animation-style')) {
+    const style = document.createElement('style');
+    style.id = 'warning-animation-style';
+    style.textContent = `
+      @keyframes pulse-warning {
+        0% { opacity: 0.6; transform: translateY(-50%) scale(1); }
+        50% { opacity: 1; transform: translateY(-50%) scale(1.2); }
+        100% { opacity: 0.6; transform: translateY(-50%) scale(1); }
+      }
+      .warning-panel {
+        animation: pulse-border 2s infinite;
+      }
+      @keyframes pulse-border {
+        0% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); }
+        70% { box-shadow: 0 0 0 10px rgba(211, 47, 47, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
+// Modify createFallbackNutritionPanel to add color coding
+function createFallbackNutritionPanel(nutritionData) {
+  if (!usingWebXRFallback) return;
+  
+  const panelsContainer = document.getElementById('nutritionPanelsContainer');
+  const panel = document.createElement('div');
+  panel.className = 'nutrition-panel';
+  
+  // Position panel based on device orientation and touch point
+  const screenWidth = window.innerWidth;
+  const screenHeight = window.innerHeight;
+  
+  // Generate a position that feels AR-like but doesn't obscure the camera view
+  let posX = screenWidth * 0.5 - 150;
+  let posY = screenHeight * 0.4;
+  
+  // Add some randomness to make multiple panels visible
+  if (activeNutritionPanels.length > 0) {
+    posX += (Math.random() - 0.5) * 100;
+    posY += (Math.random() - 0.5) * 100;
+  }
+  
+  // Keep panel on screen
+  posX = Math.max(10, Math.min(posX, screenWidth - 310));
+  posY = Math.max(70, Math.min(posY, screenHeight - 400));
+  
+  panel.style.left = `${posX}px`;
+  panel.style.top = `${posY}px`;
+  
+  // Parse nutrition data
+  const lines = nutritionData.split('\n');
+  const titleLine = lines[0];
+  
+  // Create panel content with title
+  let panelHTML = `<div class="panel-header">${titleLine}</div><div class="panel-content">`;
+  
+  // Add other nutrition data
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.includes('kcal')) {
+      panelHTML += `<div class="nutrition-row highlight-energy">${line}</div>`;
+    } else if (line.startsWith('Name:') || line.startsWith('Brand:')) {
+      panelHTML += `<div class="nutrition-row highlight-name">${line}</div>`;
+    } else {
+      panelHTML += `<div class="nutrition-row">${line}</div>`;
+    }
+  }
+  
+  // Close panel content and add controls
+  panelHTML += `</div>
+    <div class="panel-controls">
+      <button class="panel-close" onclick="this.parentNode.parentNode.remove()">×</button>
+    </div>`;
+  
+  panel.innerHTML = panelHTML;
+  
+  // Add panel to container with animation
+  panel.style.transform = 'scale(0.1)';
+  panel.style.opacity = '0';
+  panelsContainer.appendChild(panel);
+  
+  // Apply nutritional color coding
+  applyNutritionalColorCoding(panel, nutritionData);
+  
+  // Add to active panels array
+  activeNutritionPanels.push(panel);
+  
+  // Store panel position for spatial tracking
+  panelPositions.push({ left: posX, top: posY });
+  
+  // Animate panel entry
+  setTimeout(() => {
+    panel.style.transform = 'scale(1)';
+    panel.style.opacity = '1';
+  }, 50);
+  
+  // Add panel interaction events
+  panel.addEventListener('touchstart', handlePanelTouch);
+  panel.addEventListener('mousedown', handlePanelMouseDown);
+  
+  // If in comparison mode, arrange panels
+  if (isComparisonMode && activeNutritionPanels.length > 1) {
+    arrangeComparisonPanels();
+  }
+  
+  return panel;
+}
+
+// ----- COMPARISON VISUALIZATION -----
+// Add bar chart comparison in comparison mode
+function createComparisonVisualization() {
+  if (!isComparisonMode || activeNutritionPanels.length < 2) return;
+  
+  // Remove existing visualization
+  const existingViz = document.getElementById('nutritionComparisonViz');
+  if (existingViz) existingViz.remove();
+  
+  // Create visualization container
+  const vizContainer = document.createElement('div');
+  vizContainer.id = 'nutritionComparisonViz';
+  vizContainer.className = 'comparison-visualization';
+  document.body.appendChild(vizContainer);
+  
+  // Extract nutritional data from panels
+  const productsData = [];
+  activeNutritionPanels.forEach(panel => {
+    const nameRow = panel.querySelector('.highlight-name');
+    let name = "Unknown";
+    if (nameRow) {
+      const nameMatch = nameRow.innerText.match(/Name: (.+)/);
+      if (nameMatch && nameMatch[1]) name = nameMatch[1];
+    }
+    
+    const nutritionData = {};
+    panel.querySelectorAll('.nutrition-row').forEach(row => {
+      const text = row.innerText;
+      if (text.includes('Fat:')) {
+        const match = text.match(/Fat: ([\d.]+)g/);
+        if (match && match[1]) nutritionData.fat = parseFloat(match[1]);
+      } else if (text.includes('Sugars:')) {
+        const match = text.match(/Sugars: ([\d.]+)g/);
+        if (match && match[1]) nutritionData.sugars = parseFloat(match[1]);
+      } else if (text.includes('Energy:')) {
+        const match = text.match(/Energy: ([\d.]+) kcal/);
+        if (match && match[1]) nutritionData.energy = parseFloat(match[1]);
+      } else if (text.includes('Proteins:')) {
+        const match = text.match(/Proteins: ([\d.]+)g/);
+        if (match && match[1]) nutritionData.proteins = parseFloat(match[1]);
+      }
+    });
+    
+    productsData.push({
+      name: name,
+      data: nutritionData
+    });
+  });
+  
+  // Create comparison charts
+  createBarCharts(vizContainer, productsData);
+}
+
+// Create bar charts for product comparison
+function createBarCharts(container, productsData) {
+  const nutrients = ['energy', 'fat', 'sugars', 'proteins'];
+  const nutrientLabels = {
+    'energy': 'Energy (kcal)',
+    'fat': 'Fat (g)',
+    'sugars': 'Sugars (g)',
+    'proteins': 'Proteins (g)'
+  };
+  
+  const colors = [
+    '#4285F4', // Blue
+    '#EA4335', // Red
+    '#FBBC05', // Yellow
+    '#34A853', // Green
+    '#8F44AD', // Purple
+    '#F39C12'  // Orange
+  ];
+  
+  // Create header
+  const header = document.createElement('div');
+  header.className = 'viz-header';
+  header.innerHTML = '<h3>Nutrition Comparison</h3>';
+  container.appendChild(header);
+  
+  // Create charts container
+  const chartsContainer = document.createElement('div');
+  chartsContainer.className = 'charts-container';
+  container.appendChild(chartsContainer);
+  
+  // Process each nutrient
+  nutrients.forEach((nutrient, index) => {
+    // Create chart for this nutrient
+    const chartDiv = document.createElement('div');
+    chartDiv.className = 'nutrient-chart';
+    
+    // Create label
+    const label = document.createElement('div');
+    label.className = 'chart-label';
+    label.innerText = nutrientLabels[nutrient];
+    chartDiv.appendChild(label);
+    
+    // Create bars container
+    const barsContainer = document.createElement('div');
+    barsContainer.className = 'bars-container';
+    chartDiv.appendChild(barsContainer);
+    
+    // Find maximum value for scaling
+    let maxValue = 0;
+    productsData.forEach(product => {
+      if (product.data[nutrient] && product.data[nutrient] > maxValue) {
+        maxValue = product.data[nutrient];
+      }
+    });
+    
+    if (maxValue === 0) maxValue = 1; // Avoid division by zero
+    
+    // Create bars for each product
+    productsData.forEach((product, productIndex) => {
+      // Create bar group
+      const barGroup = document.createElement('div');
+      barGroup.className = 'bar-group';
+      
+      // Create product label
+      const productLabel = document.createElement('div');
+      productLabel.className = 'product-label';
+      productLabel.innerText = product.name.substring(0, 15) + (product.name.length > 15 ? '...' : '');
+      barGroup.appendChild(productLabel);
+      
+      // Create bar container and bar
+      const barContainer = document.createElement('div');
+      barContainer.className = 'bar-container';
+      
+      const value = product.data[nutrient] || 0;
+      const percentage = (value / maxValue) * 100;
+      
+      const bar = document.createElement('div');
+      bar.className = 'bar';
+      bar.style.width = '0'; // Start at 0 for animation
+      bar.style.backgroundColor = colors[productIndex % colors.length];
+      bar.style.height = '20px';
+      
+      // Set bar classification class
+      if (nutrient !== 'proteins') { // Proteins are usually good
+        const classification = classifyNutritionalValue(nutrient, value);
+        if (classification) {
+          bar.classList.add(`bar-${classification}`);
+        }
+      } else {
+        bar.classList.add('bar-protein');
+      }
+      
+      // Create label with value
+      const valueLabel = document.createElement('div');
+      valueLabel.className = 'value-label';
+      valueLabel.innerText = value || 'N/A';
+      
+      barContainer.appendChild(bar);
+      barContainer.appendChild(valueLabel);
+      barGroup.appendChild(barContainer);
+      barsContainer.appendChild(barGroup);
+      
+      // Animate bar after a delay
+      setTimeout(() => {
+        bar.style.width = `${percentage}%`;
+        bar.style.transition = 'width 1s ease-out';
+      }, 100 * productIndex);
+    });
+    
+    chartsContainer.appendChild(chartDiv);
+  });
+  
+  // Position the visualization
+  const screenHeight = window.innerHeight;
+  const panels = document.querySelectorAll('.nutrition-panel');
+  let maxPanelBottom = 0;
+  
+  panels.forEach(panel => {
+    const rect = panel.getBoundingClientRect();
+    const bottom = rect.top + rect.height;
+    if (bottom > maxPanelBottom) {
+      maxPanelBottom = bottom;
+    }
+  });
+  
+  container.style.top = `${Math.min(maxPanelBottom + 20, screenHeight - 300)}px`;
+  
+  // Add CSS for visualization if not already present
+  if (!document.getElementById('comparison-viz-style')) {
+    const style = document.createElement('style');
+    style.id = 'comparison-viz-style';
+    style.textContent = `
+      .comparison-visualization {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 90%;
+        max-width: 600px;
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 12px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        z-index: 30;
+        padding: 15px;
+        opacity: 0;
+        animation: fade-in 0.5s forwards;
+      }
+      
+      @keyframes fade-in {
+        from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0); }
+      }
+      
+      .viz-header {
+        text-align: center;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+      }
+      
+      .viz-header h3 {
+        margin: 0;
+        color: #1a73e8;
+      }
+      
+      .charts-container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      
+      .nutrient-chart {
+        margin-bottom: 15px;
+      }
+      
+      .chart-label {
+        font-weight: bold;
+        margin-bottom: 8px;
+      }
+      
+      .bars-container {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      
+      .bar-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      
+      .product-label {
+        width: 100px;
+        font-size: 14px;
+        text-align: right;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      
+      .bar-container {
+        flex-grow: 1;
+        height: 20px;
+        background: rgba(0, 0, 0, 0.05);
+        border-radius: 10px;
+        overflow: hidden;
+        position: relative;
+      }
+      
+      .bar {
+        height: 100%;
+        border-radius: 10px;
+      }
+      
+      .bar-high {
+        background-color: #d32f2f !important;
+      }
+      
+      .bar-medium {
+        background-color: #ef6c00 !important;
+      }
+      
+      .bar-low {
+        background-color: #2e7d32 !important;
+      }
+      
+      .bar-protein {
+        background-color: #2e7d32 !important;
+      }
+      
+      .value-label {
+        position: absolute;
+        right: 8px;
+        top: 0;
+        line-height: 20px;
+        font-size: 12px;
+        font-weight: bold;
+        color: white;
+        text-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+      }
+      
+      @media (max-width: 480px) {
+        .product-label {
+          width: 80px;
+          font-size: 12px;
+        }
+        
+        .comparison-visualization {
+          width: 95%;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
+// Modify toggleComparisonMode to create visualization
+function toggleComparisonMode() {
+  isComparisonMode = !isComparisonMode;
+  const compareBtn = document.getElementById('compareItemsBtn');
+  
+  if (isComparisonMode) {
+    // Enter comparison mode
+    compareBtn.classList.add('active');
+    document.getElementById('status').innerText = "Comparison mode active";
+    
+    // Arrange panels for comparison
+    if (activeNutritionPanels.length >= 2) {
+      arrangeComparisonPanels();
+      
+      // Create comparison visualization
+      setTimeout(() => {
+        createComparisonVisualization();
+      }, 600); // Allow time for panels to animate to position
+    } else {
+      showNotification("Scan at least 2 products to compare");
+    }
+  } else {
+    // Exit comparison mode
+    compareBtn.classList.remove('active');
+    document.getElementById('status').innerText = "Comparison mode disabled";
+    
+    // Remove comparison visualization
+    const vizContainer = document.getElementById('nutritionComparisonViz');
+    if (vizContainer) {
+      vizContainer.style.opacity = '0';
+      setTimeout(() => {
+        vizContainer.remove();
+      }, 300);
+    }
+    
+    // Restore original panel positions
+    activeNutritionPanels.forEach((panel, index) => {
+      if (panelPositions[index]) {
+        panel.classList.remove('comparison-mode');
+        // Animate back to original position
+        panel.style.transition = 'all 0.5s ease';
+        setTimeout(() => {
+          panel.style.left = `${panelPositions[index].left}px`;
+          panel.style.top = `${panelPositions[index].top}px`;
+          panel.style.transform = 'scale(1)';
+        }, 50);
+      }
+    });
+  }
+}
+
+// Modify createGenericNutritionPanel to use color coding
+function createGenericNutritionPanel(foodName) {
+  let labelText = "Estimated Nutrition\n";
+  labelText += `Name: ${foodName}\n`;
+  let energy = "N/A", fat = "N/A", sugars = "N/A", proteins = "N/A";
+  const foodLower = foodName.toLowerCase();
+  if (foodLower.includes('chip') || foodLower.includes('crisp') || foodLower.includes('snack')) {
+    energy = "150 kcal"; fat = "10.0g"; sugars = "1.5g"; proteins = "2.0g";
+  } else if (foodLower.includes('chocolate') || foodLower.includes('candy')) {
+    energy = "200 kcal"; fat = "12.0g"; sugars = "20.0g"; proteins = "2.5g";
+  } else if (foodLower.includes('soda') || foodLower.includes('cola')) {
+    energy = "120 kcal"; fat = "0.0g"; sugars = "30.0g"; proteins = "0.0g";
+  } else if (foodLower.includes('water') || foodLower.includes('bottle')) {
+    energy = "0 kcal"; fat = "0.0g"; sugars = "0.0g"; proteins = "0.0g";
+  } else {
+    energy = "100 kcal"; fat = "5.0g"; sugars = "3.0g"; proteins = "3.0g";
+  }
+  labelText += `Energy: ${energy}\n`;
+  labelText += `Fat: ${fat}\n`;
+  labelText += `Sugars: ${sugars}\n`;
+  labelText += `Proteins: ${proteins}\n`;
+  labelText += `Note: Estimated values\n`;
+  anchorNutritionPanel(labelText);
+}
