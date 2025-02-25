@@ -1,5 +1,3 @@
-import { ARButton } from 'https://threejs.org/examples/jsm/webxr/ARButton.js';
-
 // ----- GLOBAL VARIABLES & SETUP -----
 let currentStream = null;
 let frontCamera = false;
@@ -28,6 +26,209 @@ const foodKeywords = [
   'nestle', 'kraft', 'hershey', 'nabisco', 'frito', 'kellogg', 'heinz', 'campbell',
   'coca', 'pepsi', 'mars', 'general', 'mills', 'unilever', 'danone', 'mondelez'
 ];
+
+// ----- CAMERA-BASED AR FALLBACK (For devices without WebXR) -----
+let usingWebXRFallback = false;
+let activeNutritionPanels = [];
+let touchStartY = 0;
+let lastPanelPosition = { x: 0, y: 0 };
+
+// Check if WebXR is supported, otherwise use fallback
+function checkARSupport() {
+  if (navigator.xr) {
+    navigator.xr.isSessionSupported('immersive-ar')
+      .then((supported) => {
+        if (!supported) {
+          console.log("WebXR AR not supported, using fallback mode");
+          usingWebXRFallback = true;
+          setupARFallback();
+        } else {
+          console.log("WebXR AR is supported");
+          // Continue with WebXR initialization
+          initThreeJs();
+        }
+      })
+      .catch(err => {
+        console.error("Error checking WebXR support:", err);
+        usingWebXRFallback = true;
+        setupARFallback();
+      });
+  } else {
+    console.log("WebXR not available, using fallback mode");
+    usingWebXRFallback = true;
+    setupARFallback();
+  }
+}
+
+// Setup AR Fallback mode for devices without WebXR
+function setupARFallback() {
+  // Hide WebXR specific elements
+  const canvas3d = document.getElementById('canvas3d');
+  if (canvas3d) canvas3d.style.display = 'none';
+  
+  // Show video element as background
+  const videoElement = document.getElementById('videoElement');
+  videoElement.style.display = 'block';
+  
+  // Create container for nutrition panels
+  const panelsContainer = document.createElement('div');
+  panelsContainer.id = 'nutritionPanelsContainer';
+  panelsContainer.className = 'nutrition-panels-container';
+  document.body.appendChild(panelsContainer);
+  
+  // Add AR interaction instructions
+  const instructions = document.createElement('div');
+  instructions.className = 'ar-instructions';
+  instructions.innerHTML = `
+    <div class="instruction-box">
+      <p>Tap anywhere to place nutrition panel</p>
+      <p>Pinch to resize</p>
+      <p>Drag to move</p>
+    </div>
+  `;
+  document.body.appendChild(instructions);
+  
+  // Make instructions disappear after 4 seconds
+  setTimeout(() => {
+    instructions.style.opacity = '0';
+    setTimeout(() => {
+      instructions.style.display = 'none';
+    }, 1000);
+  }, 4000);
+  
+  // Add touch event listeners for panel interaction
+  document.addEventListener('touchstart', handleTouchStart);
+  document.addEventListener('touchmove', handleTouchMove);
+  document.addEventListener('touchend', handleTouchEnd);
+}
+
+// Handle touch start event for AR interaction
+function handleTouchStart(event) {
+  if (event.touches.length === 1) {
+    touchStartY = event.touches[0].clientY;
+    
+    // Check if touching an existing panel
+    const touch = event.touches[0];
+    const panels = document.querySelectorAll('.nutrition-panel');
+    
+    let touchedPanel = null;
+    panels.forEach(panel => {
+      const rect = panel.getBoundingClientRect();
+      if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
+          touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+        touchedPanel = panel;
+      }
+    });
+    
+    if (touchedPanel) {
+      // Start moving the panel
+      touchedPanel.classList.add('moving');
+      lastPanelPosition.x = touch.clientX - touchedPanel.getBoundingClientRect().left;
+      lastPanelPosition.y = touch.clientY - touchedPanel.getBoundingClientRect().top;
+    }
+  }
+}
+
+// Handle touch move event for AR interaction
+function handleTouchMove(event) {
+  const movingPanel = document.querySelector('.nutrition-panel.moving');
+  if (movingPanel && event.touches.length === 1) {
+    const touch = event.touches[0];
+    movingPanel.style.left = `${touch.clientX - lastPanelPosition.x}px`;
+    movingPanel.style.top = `${touch.clientY - lastPanelPosition.y}px`;
+    
+    // Prevent scrolling while moving panel
+    event.preventDefault();
+  }
+}
+
+// Handle touch end event for AR interaction
+function handleTouchEnd(event) {
+  const movingPanel = document.querySelector('.nutrition-panel.moving');
+  if (movingPanel) {
+    movingPanel.classList.remove('moving');
+  }
+}
+
+// Create a nutrition panel in fallback AR mode
+function createFallbackNutritionPanel(nutritionData) {
+  if (!usingWebXRFallback) return;
+  
+  const panelsContainer = document.getElementById('nutritionPanelsContainer');
+  const panel = document.createElement('div');
+  panel.className = 'nutrition-panel';
+  
+  // Position panel based on device orientation and touch point
+  const screenWidth = window.innerWidth;
+  const screenHeight = window.innerHeight;
+  
+  // Generate a position that feels AR-like but doesn't obscure the camera view
+  let posX = screenWidth * 0.5 - 150;
+  let posY = screenHeight * 0.4;
+  
+  // Add some randomness to make multiple panels visible
+  if (activeNutritionPanels.length > 0) {
+    posX += (Math.random() - 0.5) * 100;
+    posY += (Math.random() - 0.5) * 100;
+  }
+  
+  // Keep panel on screen
+  posX = Math.max(10, Math.min(posX, screenWidth - 310));
+  posY = Math.max(70, Math.min(posY, screenHeight - 400));
+  
+  panel.style.left = `${posX}px`;
+  panel.style.top = `${posY}px`;
+  
+  // Parse nutrition data
+  const lines = nutritionData.split('\n');
+  const titleLine = lines[0];
+  
+  // Create panel content with title
+  let panelHTML = `<div class="panel-header">${titleLine}</div><div class="panel-content">`;
+  
+  // Add other nutrition data
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.includes('kcal')) {
+      panelHTML += `<div class="nutrition-row highlight-energy">${line}</div>`;
+    } else if (line.startsWith('Name:') || line.startsWith('Brand:')) {
+      panelHTML += `<div class="nutrition-row highlight-name">${line}</div>`;
+    } else {
+      panelHTML += `<div class="nutrition-row">${line}</div>`;
+    }
+  }
+  
+  // Close panel content and add controls
+  panelHTML += `</div>
+    <div class="panel-controls">
+      <button class="panel-close" onclick="this.parentNode.parentNode.remove()">×</button>
+    </div>`;
+  
+  panel.innerHTML = panelHTML;
+  
+  // Add panel to container with animation
+  panel.style.transform = 'scale(0.1)';
+  panel.style.opacity = '0';
+  panelsContainer.appendChild(panel);
+  
+  // Add to active panels array
+  activeNutritionPanels.push(panel);
+  
+  // Animate panel entry
+  setTimeout(() => {
+    panel.style.transform = 'scale(1)';
+    panel.style.opacity = '1';
+  }, 50);
+  
+  // Add panel interaction events
+  panel.addEventListener('touchstart', (e) => {
+    // Bring panel to front
+    activeNutritionPanels.forEach(p => p.style.zIndex = '20');
+    panel.style.zIndex = '21';
+  });
+  
+  return panel;
+}
 
 // ----- THREE.JS & AR SETUP -----
 function initThreeJs() {
@@ -228,16 +429,19 @@ function buildNutritionPanel(nutritionData) {
 
 // Anchor a new nutrition panel in AR
 function anchorNutritionPanel(nutritionData) {
-  const panel = buildNutritionPanel(nutritionData);
-  // If the reticle is visible (i.e. a hit test was successful) use its pose; otherwise, fallback
-  if (reticle && reticle.visible) {
-    panel.position.setFromMatrixPosition(reticle.matrix);
-    panel.quaternion.setFromRotationMatrix(reticle.matrix);
+  if (usingWebXRFallback) {
+    createFallbackNutritionPanel(nutritionData);
   } else {
-    // Fallback: place panel 2 meters in front of the camera
-    panel.position.set(0, 0, -2).applyMatrix4(camera.matrixWorld);
+    // Existing WebXR implementation
+    const panel = buildNutritionPanel(nutritionData);
+    if (reticle && reticle.visible) {
+      panel.position.setFromMatrixPosition(reticle.matrix);
+      panel.quaternion.setFromRotationMatrix(reticle.matrix);
+    } else {
+      panel.position.set(0, 0, -2).applyMatrix4(camera.matrixWorld);
+    }
+    scene.add(panel);
   }
-  scene.add(panel);
 }
 
 // ----- CAMERA & BARCODE SCANNING (QuaggaJS) -----
@@ -501,6 +705,581 @@ Quagga.onDetected(function(result) {
     });
 });
 
+// ----- VISUAL RECOGNITION MODE -----
+let mobilenet = null;
+let isRecognitionMode = false;
+let lastRecognitionTime = 0;
+let recognitionInterval = null;
+let currentRecognitionResults = [];
+
+// Initialize TensorFlow and MobileNet
+async function initVisualRecognition() {
+  try {
+    document.getElementById('status').innerText = "Loading visual recognition...";
+    console.log("Loading MobileNet model...");
+    mobilenet = await mobilenetModule.load();
+    console.log("MobileNet loaded successfully");
+    document.getElementById('status').innerText = "Visual recognition ready!";
+    
+    // Create recognition UI if it doesn't exist
+    if (!document.getElementById('recognitionUI')) {
+      const recognitionUI = document.createElement('div');
+      recognitionUI.id = 'recognitionUI';
+      recognitionUI.innerHTML = `
+        <div class="recognition-frame"></div>
+        <div class="recognition-target"></div>
+        <div class="recognition-pulse"></div>
+      `;
+      document.body.appendChild(recognitionUI);
+    }
+    
+    // Create visual mode button if it doesn't exist
+    if (!document.getElementById('visualMode')) {
+      const scanMode = document.getElementById('scanMode');
+      const visualModeBtn = document.createElement('button');
+      visualModeBtn.id = 'visualMode';
+      visualModeBtn.className = 'modeBtn';
+      visualModeBtn.innerText = 'Visual';
+      visualModeBtn.addEventListener('click', toggleVisualRecognition);
+      scanMode.appendChild(visualModeBtn);
+    }
+    
+    // Add snapshot canvas if it doesn't exist
+    if (!document.getElementById('snapshotCanvas')) {
+      const snapshotCanvas = document.createElement('canvas');
+      snapshotCanvas.id = 'snapshotCanvas';
+      document.body.appendChild(snapshotCanvas);
+    }
+    
+    // Add product snapshot element
+    if (!document.getElementById('productSnapshot')) {
+      const productSnapshot = document.createElement('img');
+      productSnapshot.id = 'productSnapshot';
+      productSnapshot.className = 'product-snapshot';
+      document.body.appendChild(productSnapshot);
+    }
+    
+    // Add voice instruction element
+    const voiceInstruction = document.createElement('div');
+    voiceInstruction.className = 'voice-instruction';
+    voiceInstruction.innerHTML = '🔊';
+    voiceInstruction.addEventListener('click', () => {
+      speakInstructions("Point your camera at a food item and tap the screen to analyze it.");
+    });
+    document.body.appendChild(voiceInstruction);
+    
+  } catch (error) {
+    console.error("Error initializing MobileNet:", error);
+    document.getElementById('status').innerText = "Visual recognition unavailable.";
+  }
+}
+
+// Toggle visual recognition mode
+function toggleVisualRecognition() {
+  isRecognitionMode = !isRecognitionMode;
+  const visualModeBtn = document.getElementById('visualMode');
+  const recognitionUI = document.getElementById('recognitionUI');
+  const barcodeModeBtn = document.getElementById('barcodeMode');
+  
+  if (isRecognitionMode) {
+    if (isQuaggaRunning) {
+      stopBarcodeScanning();
+    }
+    
+    visualModeBtn.classList.add('active');
+    barcodeModeBtn.classList.remove('active');
+    recognitionUI.style.display = 'block';
+    document.getElementById('videoElement').style.display = 'block';
+    document.getElementById('status').innerText = "Point camera at a food item";
+    
+    // Speak instructions
+    speakInstructions("Visual recognition mode active. Point your camera at a food item and tap the screen to analyze it.");
+    
+    // Start periodic recognition
+    startPeriodicRecognition();
+  } else {
+    visualModeBtn.classList.remove('active');
+    recognitionUI.style.display = 'none';
+    document.getElementById('status').innerText = "Select a scan mode";
+    
+    // Stop periodic recognition
+    stopPeriodicRecognition();
+  }
+}
+
+// Start periodic recognition
+function startPeriodicRecognition() {
+  if (recognitionInterval) {
+    clearInterval(recognitionInterval);
+  }
+  
+  recognitionInterval = setInterval(() => {
+    if (isRecognitionMode && mobilenet) {
+      captureAndRecognize(false); // Don't show results automatically
+    }
+  }, 2000);
+  
+  // Add tap listener for manual capture
+  document.getElementById('videoElement').addEventListener('click', handleVideoTap);
+}
+
+// Stop periodic recognition
+function stopPeriodicRecognition() {
+  if (recognitionInterval) {
+    clearInterval(recognitionInterval);
+    recognitionInterval = null;
+  }
+  
+  // Remove tap listener
+  document.getElementById('videoElement').removeEventListener('click', handleVideoTap);
+}
+
+// Handle video tap for manual recognition
+function handleVideoTap(event) {
+  if (isRecognitionMode && mobilenet) {
+    captureAndRecognize(true); // Show results
+  }
+}
+
+// Capture video frame and perform recognition
+async function captureAndRecognize(showResults = true) {
+  const video = document.getElementById('videoElement');
+  const snapshotCanvas = document.getElementById('snapshotCanvas');
+  const productSnapshot = document.getElementById('productSnapshot');
+  
+  if (!video || !snapshotCanvas || !mobilenet || !video.srcObject) return;
+  
+  // Only proceed if enough time has passed since last full recognition
+  const now = Date.now();
+  if (showResults && now - lastRecognitionTime < 1000) return;
+  
+  try {
+    // Set canvas dimensions to match video
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    
+    if (videoWidth === 0 || videoHeight === 0) return;
+    
+    snapshotCanvas.width = videoWidth;
+    snapshotCanvas.height = videoHeight;
+    
+    // Capture video frame to canvas
+    const ctx = snapshotCanvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, videoWidth, videoHeight);
+    
+    // Perform recognition using MobileNet
+    const imgData = snapshotCanvas.toDataURL('image/jpeg');
+    
+    // Create a temporary image for TensorFlow to analyze
+    const tempImg = new Image();
+    tempImg.src = imgData;
+    
+    // Wait for image to load
+    await new Promise(resolve => {
+      tempImg.onload = resolve;
+    });
+    
+    // Classify the image
+    const predictions = await mobilenet.classify(tempImg);
+    
+    // Store results
+    currentRecognitionResults = predictions;
+    
+    // If we should show results (manual tap)
+    if (showResults) {
+      lastRecognitionTime = now;
+      
+      // Update status with top prediction
+      if (predictions.length > 0) {
+        const foodPredictions = predictions.filter(p => 
+          isFoodItem(p.className.toLowerCase())
+        );
+        
+        if (foodPredictions.length > 0) {
+          const topFood = foodPredictions[0];
+          document.getElementById('status').innerText = `Detected: ${topFood.className} (${Math.round(topFood.probability * 100)}%)`;
+          
+          // Show product snapshot
+          productSnapshot.src = imgData;
+          productSnapshot.style.top = '120px';
+          productSnapshot.style.right = '15px';
+          productSnapshot.classList.add('active');
+          
+          // Search for the food item
+          searchFoodItem(topFood.className);
+          
+          // Visual feedback
+          document.querySelector('.recognition-target').style.borderColor = '#4CAF50';
+          setTimeout(() => {
+            document.querySelector('.recognition-target').style.borderColor = 'rgba(66, 133, 244, 0.8)';
+          }, 1000);
+        } else {
+          document.getElementById('status').innerText = "No food item detected. Try again.";
+        }
+      } else {
+        document.getElementById('status').innerText = "Recognition failed. Try again.";
+      }
+    }
+  } catch (error) {
+    console.error("Error in recognition:", error);
+    if (showResults) {
+      document.getElementById('status').innerText = "Recognition error. Try again.";
+    }
+  }
+}
+
+// Check if an item is likely to be food
+function isFoodItem(itemName) {
+  // Check against food keywords
+  return foodKeywords.some(keyword => itemName.includes(keyword));
+}
+
+// Text-to-speech function for instructions
+function speakInstructions(text) {
+  // Check if browser supports speech synthesis
+  if ('speechSynthesis' in window) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 0.8;
+    
+    // Select a voice (optional)
+    const voices = window.speechSynthesis.getVoices();
+    const englishVoice = voices.find(voice => voice.lang.startsWith('en-'));
+    if (englishVoice) utterance.voice = englishVoice;
+    
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
+// ----- VOICE CONTROL AND INTERACTIVE FEATURES -----
+let isSpeechRecognitionAvailable = false;
+let speechRecognition = null;
+let isListening = false;
+
+// Initialize speech recognition
+function initSpeechRecognition() {
+  // Check if browser supports speech recognition
+  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    isSpeechRecognitionAvailable = true;
+    
+    // Create speech recognition instance
+    speechRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    speechRecognition.continuous = false;
+    speechRecognition.interimResults = false;
+    speechRecognition.lang = 'en-US';
+    
+    // Handle speech recognition results
+    speechRecognition.onresult = function(event) {
+      const transcript = event.results[0][0].transcript.toLowerCase();
+      console.log("Voice command:", transcript);
+      
+      // Process commands
+      if (transcript.includes('scan') || transcript.includes('barcode')) {
+        document.getElementById('barcodeMode').click();
+      } else if (transcript.includes('visual') || transcript.includes('recognize')) {
+        document.getElementById('visualMode').click();
+      } else if (transcript.includes('switch') || transcript.includes('camera')) {
+        document.getElementById('switchCameraBtn').click();
+      } else if (transcript.includes('help') || transcript.includes('instruction')) {
+        speakInstructions("Point your camera at a food barcode to scan or use visual mode to recognize food items.");
+      } else if (transcript.includes('search') || transcript.includes('find')) {
+        // Extract food name from command
+        const foodTerms = transcript.replace('search', '').replace('find', '').trim();
+        if (foodTerms) {
+          searchFoodItem(foodTerms);
+        }
+      } else if (transcript.includes('clear') || transcript.includes('reset')) {
+        clearNutritionPanels();
+      }
+    };
+    
+    // Handle errors
+    speechRecognition.onerror = function(event) {
+      console.error("Speech recognition error:", event.error);
+      isListening = false;
+      updateVoiceButton();
+    };
+    
+    speechRecognition.onend = function() {
+      isListening = false;
+      updateVoiceButton();
+    };
+    
+    // Create voice control button
+    createVoiceControlButton();
+  }
+}
+
+// Create voice control button
+function createVoiceControlButton() {
+  if (!isSpeechRecognitionAvailable) return;
+  
+  const voiceBtn = document.createElement('button');
+  voiceBtn.id = 'voiceControlBtn';
+  voiceBtn.className = 'control-button voice-btn';
+  voiceBtn.innerHTML = '🎤';
+  voiceBtn.addEventListener('click', toggleVoiceControl);
+  
+  const buttonContainer = document.querySelector('.button-container');
+  buttonContainer.appendChild(voiceBtn);
+}
+
+// Toggle voice control
+function toggleVoiceControl() {
+  if (!isSpeechRecognitionAvailable) return;
+  
+  if (isListening) {
+    stopListening();
+  } else {
+    startListening();
+  }
+}
+
+// Start listening for voice commands
+function startListening() {
+  try {
+    speechRecognition.start();
+    isListening = true;
+    document.getElementById('status').innerText = "Listening for commands...";
+    updateVoiceButton();
+    
+    // Add visual feedback
+    const voiceBtn = document.getElementById('voiceControlBtn');
+    if (voiceBtn) {
+      voiceBtn.classList.add('listening');
+    }
+    
+    // Auto-stop after 10 seconds if no result
+    setTimeout(() => {
+      if (isListening) {
+        stopListening();
+      }
+    }, 10000);
+  } catch (error) {
+    console.error("Error starting speech recognition:", error);
+  }
+}
+
+// Stop listening for voice commands
+function stopListening() {
+  try {
+    speechRecognition.stop();
+    isListening = false;
+    updateVoiceButton();
+    
+    // Remove visual feedback
+    const voiceBtn = document.getElementById('voiceControlBtn');
+    if (voiceBtn) {
+      voiceBtn.classList.remove('listening');
+    }
+  } catch (error) {
+    console.error("Error stopping speech recognition:", error);
+  }
+}
+
+// Update voice button appearance
+function updateVoiceButton() {
+  const voiceBtn = document.getElementById('voiceControlBtn');
+  if (voiceBtn) {
+    if (isListening) {
+      voiceBtn.style.backgroundColor = '#f44336';
+      voiceBtn.style.color = 'white';
+      voiceBtn.style.animation = 'pulse 1.5s infinite';
+    } else {
+      voiceBtn.style.backgroundColor = 'rgba(255,255,255,0.9)';
+      voiceBtn.style.color = '#000';
+      voiceBtn.style.animation = 'none';
+    }
+  }
+}
+
+// Clear all nutrition panels
+function clearNutritionPanels() {
+  if (usingWebXRFallback) {
+    const panels = document.querySelectorAll('.nutrition-panel');
+    panels.forEach(panel => {
+      panel.style.opacity = '0';
+      panel.style.transform = 'scale(0.8)';
+      setTimeout(() => {
+        panel.remove();
+      }, 300);
+    });
+    activeNutritionPanels = [];
+  } else {
+    // Remove panels from Three.js scene
+    scene.traverse((object) => {
+      if (object.isGroup && object.name.includes('nutrition-panel')) {
+        scene.remove(object);
+      }
+    });
+  }
+  
+  document.getElementById('status').innerText = "Cleared all nutrition panels";
+}
+
+// Add UI for nutrition comparison
+function createComparisonFeature() {
+  // Add a button to compare items
+  const compareBtn = document.createElement('button');
+  compareBtn.id = 'compareItemsBtn';
+  compareBtn.className = 'modeBtn';
+  compareBtn.style.marginLeft = '20px';
+  compareBtn.innerText = 'Compare';
+  compareBtn.addEventListener('click', toggleComparisonMode);
+  
+  document.getElementById('scanMode').appendChild(compareBtn);
+}
+
+// Toggle comparison mode
+function toggleComparisonMode() {
+  const compareBtn = document.getElementById('compareItemsBtn');
+  
+  if (compareBtn.classList.contains('active')) {
+    // Exit comparison mode
+    compareBtn.classList.remove('active');
+    if (usingWebXRFallback) {
+      // Reset panel positioning
+      document.querySelectorAll('.nutrition-panel').forEach(panel => {
+        panel.classList.remove('comparison-mode');
+      });
+    }
+  } else {
+    // Enter comparison mode
+    compareBtn.classList.add('active');
+    if (usingWebXRFallback) {
+      // Arrange panels side by side
+      const panels = document.querySelectorAll('.nutrition-panel');
+      if (panels.length >= 2) {
+        panels.forEach((panel, index) => {
+          panel.classList.add('comparison-mode');
+          panel.style.left = `${index * 310 + 10}px`;
+          panel.style.top = '100px';
+          panel.style.zIndex = '20';
+        });
+      } else {
+        speakInstructions("Scan at least two items to compare");
+      }
+    }
+  }
+}
+
+// Add social sharing feature
+function addSharingFeature() {
+  const shareBtn = document.createElement('button');
+  shareBtn.id = 'shareResultsBtn';
+  shareBtn.className = 'control-button';
+  shareBtn.innerHTML = '📤';
+  shareBtn.addEventListener('click', shareResults);
+  
+  document.querySelector('.button-container').appendChild(shareBtn);
+}
+
+// Share nutrition results
+function shareResults() {
+  // Capture the current state
+  const video = document.getElementById('videoElement');
+  const canvas = document.createElement('canvas');
+  
+  // Set canvas dimensions to match video
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  
+  // Get canvas context and draw video
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight, 0, 0, canvas.width, canvas.height);
+  
+  // Draw nutrition panels
+  if (usingWebXRFallback) {
+    document.querySelectorAll('.nutrition-panel').forEach(panel => {
+      const rect = panel.getBoundingClientRect();
+      ctx.drawImage(panel, rect.left, rect.top, rect.width, rect.height);
+    });
+  }
+  
+  // Convert to data URL
+  const dataUrl = canvas.toDataURL('image/jpeg');
+  
+  // Use Web Share API if available
+  if (navigator.share) {
+    const fileName = 'nutrition-scan-' + new Date().toISOString().slice(0, 10) + '.jpg';
+    const file = dataURLtoFile(dataUrl, fileName);
+    
+    navigator.share({
+      title: 'Nutrition Scanner Results',
+      text: 'Check out this nutrition info I scanned!',
+      files: [file]
+    }).then(() => {
+      console.log('Shared successfully');
+    }).catch((error) => {
+      console.error('Error sharing:', error);
+    });
+  } else {
+    // Fallback: create download link
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = 'nutrition-scan-' + new Date().toISOString().slice(0, 10) + '.jpg';
+    link.click();
+  }
+}
+
+// Convert data URL to file
+function dataURLtoFile(dataurl, filename) {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  
+  return new File([u8arr], filename, { type: mime });
+}
+
+// Show welcome message
+function showWelcomeMessage() {
+  const welcomeOverlay = document.createElement('div');
+  welcomeOverlay.className = 'welcome-overlay';
+  welcomeOverlay.innerHTML = `
+    <div class="welcome-content">
+      <h1>AR Nutrition Scanner</h1>
+      <p>Scan food products to see nutrition information in augmented reality</p>
+      <div class="welcome-features">
+        <div class="feature">
+          <div class="feature-icon">📷</div>
+          <div class="feature-text">Scan barcodes</div>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">👁️</div>
+          <div class="feature-text">Visual recognition</div>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">🔊</div>
+          <div class="feature-text">Voice control</div>
+        </div>
+      </div>
+      <button id="startScanningBtn">Start Scanning</button>
+    </div>
+  `;
+  
+  document.body.appendChild(welcomeOverlay);
+  
+  // Add animation classes
+  setTimeout(() => {
+    welcomeOverlay.classList.add('active');
+  }, 100);
+  
+  // Add button event listener
+  document.getElementById('startScanningBtn').addEventListener('click', () => {
+    welcomeOverlay.classList.remove('active');
+    setTimeout(() => {
+      welcomeOverlay.remove();
+    }, 500);
+  });
+}
+
 // ----- UI EVENT LISTENERS -----
 document.getElementById('barcodeMode').addEventListener('click', function() {
   startBarcodeScanning();
@@ -519,7 +1298,16 @@ document.getElementById('retryPermission').addEventListener('click', function() 
 // ----- INITIALIZATION -----
 window.addEventListener('load', () => {
   initCamera();
-  initThreeJs();
+  checkARSupport();
+  setTimeout(() => {
+    initVisualRecognition();
+    initSpeechRecognition();
+    createComparisonFeature();
+    addSharingFeature();
+    
+    // Show welcome message and intro animation
+    showWelcomeMessage();
+  }, 2000);
 });
 
 // Handle visibility changes
