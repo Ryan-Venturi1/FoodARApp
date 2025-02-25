@@ -18,6 +18,8 @@ let activeNutritionPanels = [];
 let panelPositions = []; // Store panel positions relative to camera orientation
 let lastDeviceOrientation = null;
 let isOrientationAvailable = false;
+let orientationPermissionGranted = false;
+let isComparisonMode = false;
 
 // Check if WebXR is supported, otherwise use fallback
 function checkARSupport() {
@@ -64,14 +66,73 @@ function setupARFallback() {
   
   // Check if device orientation is available
   if (window.DeviceOrientationEvent) {
-    window.addEventListener('deviceorientation', handleOrientation);
-    isOrientationAvailable = true;
+    // For iOS 13+ which requires permission
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      // Create permission button
+      const permissionBtn = document.createElement('button');
+      permissionBtn.id = 'orientationPermissionBtn';
+      permissionBtn.className = 'control-button';
+      permissionBtn.innerHTML = '📱';
+      permissionBtn.title = 'Enable spatial tracking';
+      permissionBtn.addEventListener('click', requestOrientationPermission);
+      document.querySelector('.button-container').appendChild(permissionBtn);
+    } else {
+      // For devices that don't need permission
+      window.addEventListener('deviceorientation', handleOrientation);
+      isOrientationAvailable = true;
+      orientationPermissionGranted = true;
+      showNotification("Spatial tracking active");
+    }
   }
+}
+
+// Request permission for device orientation (iOS 13+)
+function requestOrientationPermission() {
+  if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission()
+      .then(permissionState => {
+        if (permissionState === 'granted') {
+          window.addEventListener('deviceorientation', handleOrientation);
+          isOrientationAvailable = true;
+          orientationPermissionGranted = true;
+          
+          // Hide permission button
+          const permissionBtn = document.getElementById('orientationPermissionBtn');
+          if (permissionBtn) permissionBtn.style.display = 'none';
+          
+          showNotification("Spatial tracking enabled");
+        } else {
+          console.log("Device orientation permission denied");
+          showNotification("Spatial tracking denied");
+        }
+      })
+      .catch(console.error);
+  }
+}
+
+// Show notification
+function showNotification(message, duration = 3000) {
+  // Create notification element if it doesn't exist
+  let notification = document.querySelector('.notification');
+  if (!notification) {
+    notification = document.createElement('div');
+    notification.className = 'notification';
+    document.body.appendChild(notification);
+  }
+  
+  // Set message and show notification
+  notification.textContent = message;
+  notification.classList.add('show');
+  
+  // Hide notification after duration
+  setTimeout(() => {
+    notification.classList.remove('show');
+  }, duration);
 }
 
 // Handle device orientation changes
 function handleOrientation(event) {
-  if (!isOrientationAvailable) return;
+  if (!isOrientationAvailable || isComparisonMode) return;
   
   const orientation = {
     alpha: event.alpha || 0, // compass direction (0-360)
@@ -208,11 +269,18 @@ function createFallbackNutritionPanel(nutritionData) {
   panel.addEventListener('touchstart', handlePanelTouch);
   panel.addEventListener('mousedown', handlePanelMouseDown);
   
+  // If in comparison mode, arrange panels
+  if (isComparisonMode && activeNutritionPanels.length > 1) {
+    arrangeComparisonPanels();
+  }
+  
   return panel;
 }
 
 // Handle panel touch events
 function handlePanelTouch(event) {
+  if (isComparisonMode) return; // Don't allow moving in comparison mode
+  
   const panel = event.currentTarget;
   
   // Get original position
@@ -261,6 +329,8 @@ function handlePanelTouch(event) {
 
 // Handle panel mouse events (for desktop)
 function handlePanelMouseDown(event) {
+  if (isComparisonMode) return; // Don't allow moving in comparison mode
+  
   const panel = event.currentTarget;
   
   // Get original position
@@ -780,6 +850,314 @@ Quagga.onDetected(function(result) {
     });
 });
 
+// ----- SHARING FUNCTIONALITY -----
+function addSharingFeature() {
+  const shareBtn = document.createElement('button');
+  shareBtn.id = 'shareResultsBtn';
+  shareBtn.className = 'control-button';
+  shareBtn.innerHTML = '📤';
+  shareBtn.title = 'Share results';
+  shareBtn.addEventListener('click', shareResults);
+  
+  document.querySelector('.button-container').appendChild(shareBtn);
+}
+
+// Share nutrition results
+function shareResults() {
+  // Create a canvas to capture the current state
+  const canvas = document.createElement('canvas');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const ctx = canvas.getContext('2d');
+  
+  // Draw video background if available
+  const video = document.getElementById('videoElement');
+  if (video.style.display !== 'none' && video.videoWidth > 0) {
+    ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight, 
+                  0, 0, canvas.width, canvas.height);
+  } else {
+    // Draw Quagga view if active
+    const quaggaVideo = document.querySelector('#quaggaContainer video');
+    if (quaggaVideo && quaggaVideo.videoWidth > 0) {
+      ctx.drawImage(quaggaVideo, 0, 0, quaggaVideo.videoWidth, quaggaVideo.videoHeight, 
+                    0, 0, canvas.width, canvas.height);
+    } else {
+      // Fallback to black background
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+  }
+  
+  // Draw status bar
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, 0, canvas.width, 50);
+  ctx.fillStyle = '#fff';
+  ctx.font = '16px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(document.getElementById('status').innerText, canvas.width / 2, 30);
+  
+  // Draw nutrition panels if in fallback mode
+  if (usingWebXRFallback) {
+    document.querySelectorAll('.nutrition-panel').forEach(panel => {
+      try {
+        // Get panel position and size
+        const rect = panel.getBoundingClientRect();
+        
+        // Create a representation of the panel on canvas
+        ctx.save();
+        
+        // Draw panel background
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 5;
+        ctx.beginPath();
+        ctx.roundRect(rect.left, rect.top, rect.width, rect.height, 12);
+        ctx.fill();
+        
+        // Draw panel header
+        const headerHeight = 45;
+        ctx.fillStyle = '#4285f4';
+        ctx.beginPath();
+        ctx.roundRect(rect.left, rect.top, rect.width, headerHeight, [12, 12, 0, 0]);
+        ctx.fill();
+        
+        // Extract and draw panel title
+        const title = panel.querySelector('.panel-header').innerText;
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(title, rect.left + rect.width / 2, rect.top + 28);
+        
+        // Extract and draw nutrition info
+        ctx.textAlign = 'left';
+        ctx.font = '16px Arial';
+        ctx.fillStyle = '#000';
+        
+        const rows = panel.querySelectorAll('.nutrition-row');
+        rows.forEach((row, index) => {
+          let textColor = '#000';
+          if (row.classList.contains('highlight-name')) {
+            textColor = '#1a73e8';
+          } else if (row.classList.contains('highlight-energy')) {
+            textColor = '#f57c00';
+          }
+          
+          ctx.fillStyle = textColor;
+          ctx.fillText(
+            row.innerText, 
+            rect.left + 15, 
+            rect.top + headerHeight + 30 + (index * 25)
+          );
+        });
+        
+        ctx.restore();
+      } catch (error) {
+        console.error("Error drawing panel to canvas:", error);
+      }
+    });
+  }
+  
+  // Convert to data URL
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+  
+  // Use Web Share API if available
+  if (navigator.share) {
+    const fileName = 'nutrition-scan-' + new Date().toISOString().slice(0, 10) + '.jpg';
+    const file = dataURLtoFile(dataUrl, fileName);
+    
+    navigator.share({
+      title: 'Nutrition Scanner Results',
+      text: 'Check out this nutrition info I scanned!',
+      files: [file]
+    }).then(() => {
+      showNotification("Shared successfully");
+    }).catch((error) => {
+      console.error('Error sharing:', error);
+      // Fallback to download if share fails
+      downloadImage(dataUrl);
+    });
+  } else {
+    // Fallback to download
+    downloadImage(dataUrl);
+  }
+}
+
+// Convert data URL to file
+function dataURLtoFile(dataurl, filename) {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  
+  return new File([u8arr], filename, { type: mime });
+}
+
+// Download image
+function downloadImage(dataUrl) {
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = 'nutrition-scan-' + new Date().toISOString().slice(0, 10) + '.jpg';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  showNotification("Image saved");
+}
+
+// ----- COMPARISON FEATURE -----
+function addCompareButton() {
+  // Add compare button in scanMode area
+  const compareBtn = document.createElement('button');
+  compareBtn.id = 'compareItemsBtn';
+  compareBtn.className = 'modeBtn';
+  compareBtn.style.marginLeft = '15px';
+  compareBtn.innerHTML = 'Compare';
+  compareBtn.title = 'Compare products';
+  compareBtn.addEventListener('click', toggleComparisonMode);
+  
+  document.getElementById('scanMode').appendChild(compareBtn);
+}
+
+// Toggle comparison mode
+function toggleComparisonMode() {
+  isComparisonMode = !isComparisonMode;
+  const compareBtn = document.getElementById('compareItemsBtn');
+  
+  if (isComparisonMode) {
+    // Enter comparison mode
+    compareBtn.classList.add('active');
+    document.getElementById('status').innerText = "Comparison mode active";
+    
+    // Arrange panels for comparison
+    if (activeNutritionPanels.length >= 2) {
+      arrangeComparisonPanels();
+    } else {
+      showNotification("Scan at least 2 products to compare");
+    }
+  } else {
+    // Exit comparison mode
+    compareBtn.classList.remove('active');
+    document.getElementById('status').innerText = "Comparison mode disabled";
+    
+    // Restore original panel positions
+    activeNutritionPanels.forEach((panel, index) => {
+      if (panelPositions[index]) {
+        panel.classList.remove('comparison-mode');
+        // Animate back to original position
+        panel.style.transition = 'all 0.5s ease';
+        setTimeout(() => {
+          panel.style.left = `${panelPositions[index].left}px`;
+          panel.style.top = `${panelPositions[index].top}px`;
+          panel.style.transform = 'scale(1)';
+        }, 50);
+      }
+    });
+  }
+}
+
+// Arrange panels for comparison
+function arrangeComparisonPanels() {
+  if (!isComparisonMode || activeNutritionPanels.length < 2) return;
+  
+  const screenWidth = window.innerWidth;
+  const screenHeight = window.innerHeight;
+  
+  // First, save original positions if not saved yet
+  activeNutritionPanels.forEach((panel, index) => {
+    // Save original position if not already saved
+    if (!panelPositions[index]) {
+      panelPositions[index] = {
+        left: parseFloat(panel.style.left),
+        top: parseFloat(panel.style.top)
+      };
+    }
+    
+    // Add comparison mode class for styling
+    panel.classList.add('comparison-mode');
+    
+    // Calculate new position for grid layout
+    const panelWidth = 300;
+    const totalWidth = Math.min(activeNutritionPanels.length * panelWidth, screenWidth);
+    const startX = (screenWidth - totalWidth) / 2;
+    
+    // Determine position based on index
+    const columnCount = Math.min(activeNutritionPanels.length, Math.floor(screenWidth / panelWidth));
+    const row = Math.floor(index / columnCount);
+    const col = index % columnCount;
+    
+    const posX = startX + (col * panelWidth);
+    const posY = 100 + (row * 380);
+    
+    // Apply new position with animation
+    panel.style.transition = 'all 0.5s ease';
+    panel.style.left = `${posX}px`;
+    panel.style.top = `${posY}px`;
+    panel.style.transform = 'scale(0.9)';
+    panel.style.zIndex = '20';
+  });
+  
+  showNotification("Products arranged for comparison");
+}
+
+// ----- INFO SCREEN -----
+function addInfoButton() {
+  // Create info button
+  const infoBtn = document.createElement('button');
+  infoBtn.id = 'infoButton';
+  infoBtn.className = 'info-button';
+  infoBtn.innerHTML = '<i class="fas fa-info-circle"></i>';
+  infoBtn.title = 'Help';
+  infoBtn.addEventListener('click', showHelpOverlay);
+  document.body.appendChild(infoBtn);
+  
+  // Create help overlay
+  const helpOverlay = document.createElement('div');
+  helpOverlay.id = 'helpOverlay';
+  helpOverlay.className = 'help-overlay';
+  helpOverlay.innerHTML = `
+    <div class="help-content">
+      <h2>How to Use</h2>
+      <ul>
+        <li><strong>Barcode Mode:</strong> Scan product barcodes to view nutritional information</li>
+        <li><strong>Compare Mode:</strong> Scan multiple products and compare them side by side</li>
+        <li><strong>Switch Camera:</strong> Toggle between front and back cameras</li>
+        <li><strong>Spatial Tracking:</strong> The nutrition panels will try to stay in position as you move your camera</li>
+        <li><strong>Panel Movement:</strong> Touch and drag panels to reposition them</li>
+        <li><strong>Share Results:</strong> Tap the share button to save or share your findings</li>
+        <li><strong>Clear Panels:</strong> Remove all nutrition panels with the trash button</li>
+      </ul>
+      <h3>Tips:</h3>
+      <ul>
+        <li>For best barcode scanning, ensure good lighting</li>
+        <li>Multiple products can be scanned for comparison</li>
+        <li>iOS users may need to enable motion sensors for spatial tracking</li>
+      </ul>
+      <button id="closeHelpBtn">Got it!</button>
+    </div>
+  `;
+  document.body.appendChild(helpOverlay);
+  
+  // Add close button handler
+  document.getElementById('closeHelpBtn').addEventListener('click', hideHelpOverlay);
+}
+
+// Show help overlay
+function showHelpOverlay() {
+  document.getElementById('helpOverlay').style.display = 'flex';
+}
+
+// Hide help overlay
+function hideHelpOverlay() {
+  document.getElementById('helpOverlay').style.display = 'none';
+}
+
 // ----- UI EVENT LISTENERS -----
 if (document.getElementById('barcodeMode')) {
   document.getElementById('barcodeMode').addEventListener('click', function() {
@@ -828,6 +1206,7 @@ function addClearButton() {
   clearBtn.id = 'clearPanelsBtn';
   clearBtn.className = 'control-button';
   clearBtn.innerHTML = '🗑️';
+  clearBtn.title = 'Clear all panels';
   clearBtn.addEventListener('click', clearNutritionPanels);
   
   document.querySelector('.button-container').appendChild(clearBtn);
@@ -848,7 +1227,7 @@ function showWelcomeMessage() {
         </div>
         <div class="feature">
           <div class="feature-icon">📊</div>
-          <div class="feature-text">View nutrition info</div>
+          <div class="feature-text">Compare products</div>
         </div>
         <div class="feature">
           <div class="feature-icon">📍</div>
@@ -882,6 +1261,10 @@ window.addEventListener('load', () => {
   setTimeout(() => {
     // Add UI components
     addClearButton();
+    addSharingFeature();
+    addInfoButton();
+    addCompareButton();
+    
     // Show welcome message
     showWelcomeMessage();
   }, 2000);
