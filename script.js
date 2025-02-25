@@ -1,3 +1,5 @@
+import { ARButton } from 'https://threejs.org/examples/jsm/webxr/ARButton.js';
+
 // ----- GLOBAL VARIABLES & SETUP -----
 let currentStream = null;
 let frontCamera = false;
